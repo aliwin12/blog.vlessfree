@@ -27,23 +27,16 @@ import {
 import Markdown from 'react-markdown';
 import { Article, MOCK_ARTICLES } from './types';
 
-const LOGO_URL = "https://vlessfree.vercel.app/logotext.png";
-
 const Navbar = ({ isDark, toggleDark }: { isDark: boolean, toggleDark: () => void }) => (
   <nav className="sticky top-0 z-50 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md border-b border-zinc-200 dark:border-zinc-800 transition-colors">
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div className="flex justify-between h-16 items-center">
         <Link 
           to="/"
-          className="flex items-center gap-2 cursor-pointer" 
+          className="flex items-center gap-1 cursor-pointer" 
         >
-          <img 
-            src={LOGO_URL} 
-            alt="vlessfree" 
-            className="h-8 w-auto invert dark:invert-0 transition-all"
-            referrerPolicy="no-referrer"
-          />
-          <span className="text-lg font-medium text-zinc-900 dark:text-zinc-100 ml-1">blog</span>
+          <span className="text-xl font-bold tracking-tighter text-zinc-900 dark:text-zinc-100">vlessfree</span>
+          <span className="text-lg font-medium text-zinc-500 dark:text-zinc-400 ml-1">blog</span>
         </Link>
         
         <div className="flex items-center gap-4">
@@ -350,14 +343,9 @@ export default function App() {
         <footer className="bg-white dark:bg-zinc-950 border-t border-zinc-200 dark:border-zinc-800 py-12 mt-20 transition-colors">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-col md:flex-row justify-between items-center gap-8">
-              <div className="flex items-center gap-2">
-                <img 
-                  src={LOGO_URL} 
-                  alt="vlessfree" 
-                  className="h-6 w-auto invert dark:invert-0 transition-all"
-                  referrerPolicy="no-referrer"
-                />
-                <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100 ml-1">blog</span>
+              <div className="flex items-center gap-1">
+                <span className="text-lg font-bold tracking-tighter text-zinc-900 dark:text-zinc-100">vlessfree</span>
+                <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400 ml-1">blog</span>
               </div>
               <div className="text-sm text-zinc-400 dark:text-zinc-600">
                 © 2026 vlessfree. все права защищены.
