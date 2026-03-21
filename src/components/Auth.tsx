@@ -70,12 +70,24 @@ export const Auth = () => {
           <AlertCircle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-amber-900 dark:text-amber-200 mb-2">Supabase не настроен</h2>
           <p className="text-amber-700 dark:text-amber-400 text-sm mb-6">
-            Для работы системы аккаунтов необходимо добавить переменные окружения VITE_SUPABASE_URL и VITE_SUPABASE_ANON_KEY.
+            Для работы системы аккаунтов необходимо добавить переменные окружения VITE_SUPABASE_URL и VITE_SUPABASE_ANON_KEY в настройках проекта.
           </p>
-          <div className="bg-white dark:bg-zinc-900 rounded-2xl p-4 text-left font-mono text-xs text-zinc-500 dark:text-zinc-400 border border-amber-100 dark:border-amber-900/20">
-            <p>1. Перейдите в настройки Supabase</p>
-            <p>2. Скопируйте URL и Anon Key</p>
-            <p>3. Добавьте их в Settings {"->"} Secrets</p>
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl p-6 text-left space-y-4 border border-amber-100 dark:border-amber-900/20 shadow-sm">
+            <div className="space-y-1">
+              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">шаг 1</p>
+              <p className="text-sm text-zinc-600 dark:text-zinc-300">Перейдите в настройки вашего проекта Supabase (Project Settings {"->"} API).</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">шаг 2</p>
+              <p className="text-sm text-zinc-600 dark:text-zinc-300">Скопируйте Project URL и anon public key.</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">шаг 3</p>
+              <p className="text-sm text-zinc-600 dark:text-zinc-300">В этом редакторе откройте Settings {"->"} Secrets и добавьте их.</p>
+            </div>
+            <div className="pt-2">
+              <p className="text-xs text-zinc-500 italic">После настройки обновите страницу, чтобы изменения вступили в силу.</p>
+            </div>
           </div>
         </div>
       </motion.div>

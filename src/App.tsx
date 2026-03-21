@@ -1476,6 +1476,14 @@ export default function App() {
   const [profile, setProfile] = useState<Profile | null>(null);
 
   useEffect(() => {
+    if (isDark) {
+      document.body.classList.add('dark');
+    } else {
+      document.body.classList.remove('dark');
+    }
+  }, [isDark]);
+
+  useEffect(() => {
     if (!isSupabaseConfigured) return;
 
     // Check current session
@@ -1513,17 +1521,25 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    if (isDark) {
-      document.body.classList.add('dark');
-    } else {
-      document.body.classList.remove('dark');
-    }
-  }, [isDark]);
-
   return (
     <Router>
       <div className="min-h-screen transition-colors duration-300 bg-zinc-50 dark:bg-zinc-950 selection:bg-zinc-900 selection:text-white dark:selection:bg-zinc-100 dark:selection:text-zinc-900">
+        {!isSupabaseConfigured && (
+          <div className="bg-amber-500/10 border-b border-amber-500/20 py-2 px-4">
+            <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400 flex items-center gap-2">
+                <AlertIcon className="w-3 h-3" />
+                режим демо: база данных не подключена.
+              </p>
+              <Link 
+                to="/auth" 
+                className="text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full bg-amber-500 text-white hover:bg-amber-600 transition-colors"
+              >
+                подключить supabase
+              </Link>
+            </div>
+          </div>
+        )}
         <Navbar 
           isDark={isDark} 
           toggleDark={() => setIsDark(!isDark)} 
