@@ -33,10 +33,9 @@ const Navbar = ({ isDark, toggleDark }: { isDark: boolean, toggleDark: () => voi
       <div className="flex justify-between h-16 items-center">
         <Link 
           to="/"
-          className="flex items-center gap-1 cursor-pointer" 
+          className="flex items-center cursor-pointer" 
         >
-          <span className="text-xl font-bold tracking-tighter text-zinc-900 dark:text-zinc-100">vlessfree</span>
-          <span className="text-lg font-medium text-zinc-500 dark:text-zinc-400 ml-1">blog</span>
+          <span className="text-xl font-medium text-zinc-900 dark:text-zinc-100">vlessfree</span>
         </Link>
         
         <div className="flex items-center gap-4">
@@ -343,10 +342,9 @@ export default function App() {
         <footer className="bg-white dark:bg-zinc-950 border-t border-zinc-200 dark:border-zinc-800 py-12 mt-20 transition-colors">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-col md:flex-row justify-between items-center gap-8">
-              <div className="flex items-center gap-1">
-                <span className="text-lg font-bold tracking-tighter text-zinc-900 dark:text-zinc-100">vlessfree</span>
-                <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400 ml-1">blog</span>
-              </div>
+              <div className="flex items-center">
+              <span className="text-lg font-medium text-zinc-900 dark:text-zinc-100">vlessfree</span>
+            </div>
               <div className="text-sm text-zinc-400 dark:text-zinc-600">
                 © 2026 vlessfree. все права защищены.
               </div>
