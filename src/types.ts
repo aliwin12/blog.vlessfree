@@ -5,10 +5,29 @@ export interface Article {
   content: string;
   date: string;
   author: string;
-  authorBadge?: string;
+  author_id?: string;
+  author_badge?: string;
   category: string;
-  readTime: string;
+  read_time: string;
   image: string;
+  edit_count?: number;
+  is_draft?: boolean;
+}
+
+export interface Profile {
+  id: string;
+  username: string;
+  avatar_url?: string;
+  created_at: string;
+}
+
+export interface Comment {
+  id: string;
+  article_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  profile?: Profile;
 }
 
 export const MOCK_ARTICLES: Article[] = [
@@ -19,9 +38,9 @@ export const MOCK_ARTICLES: Article[] = [
     content: '01.04.2026',
     date: '17 Марта 2026',
     author: 'aliwin',
-    authorBadge: 'создатель',
+    author_badge: 'создатель',
     category: 'Новости',
-    readTime: '1 мин',
+    read_time: '1 мин',
     image: 'https://i.ibb.co/xSrJq5ZZ/2026-03-17-214505.png'
   }
 ];
