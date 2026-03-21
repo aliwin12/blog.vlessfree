@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
+  Eye,
+  EyeOff,
+  ShieldCheck,
   Menu, 
   X, 
   ChevronRight, 
@@ -831,6 +834,7 @@ const ProfileView = ({ user }: { user: SupabaseUser | null }) => {
 };
 
 const SettingsView = ({ profile, onUpdate }: { profile: Profile | null, onUpdate: () => void }) => {
+  const navigate = useNavigate();
   const [username, setUsername] = useState(profile?.username || '');
   const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url || '');
   const [loading, setLoading] = useState(false);
@@ -973,6 +977,16 @@ const SettingsView = ({ profile, onUpdate }: { profile: Profile | null, onUpdate
           </button>
         </div>
       </form>
+
+      <div className="mt-12 flex justify-center">
+        <button
+          onClick={() => navigate('/admin')}
+          className="text-[10px] text-zinc-200 dark:text-zinc-800 hover:text-zinc-400 dark:hover:text-zinc-600 transition-colors"
+          title="админ"
+        >
+          .
+        </button>
+      </div>
     </motion.div>
   );
 };
@@ -1470,6 +1484,166 @@ const ArticleEditor = ({ user, profile }: { user: SupabaseUser | null, profile: 
   );
 };
 
+const AdminView = () => {
+  const [password, setPassword] = useState('');
+  const [isAuthorized, setIsAuthorized] = useState(false);
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+
+  const ADMIN_PASSWORD = 'MiOiJzdXBhYmFzZSIsInJlZiI6Im';
+
+  useEffect(() => {
+    if (isAuthorized) {
+      fetchArticles();
+    }
+  }, [isAuthorized]);
+
+  const fetchArticles = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('articles')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (data) setArticles(data);
+    setLoading(false);
+  };
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password === ADMIN_PASSWORD) {
+      setIsAuthorized(true);
+    } else {
+      alert('Неверный пароль');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Вы уверены, что хотите удалить эту статью?')) return;
+    const { error } = await supabase.from('articles').delete().eq('id', id);
+    if (!error) {
+      setArticles(articles.filter(a => a.id !== id));
+    }
+  };
+
+  const toggleDraft = async (article: Article) => {
+    const { error } = await supabase
+      .from('articles')
+      .update({ is_draft: !article.is_draft })
+      .eq('id', article.id);
+    
+    if (!error) {
+      setArticles(articles.map(a => a.id === article.id ? { ...a, is_draft: !a.is_draft } : a));
+    }
+  };
+
+  if (!isAuthorized) {
+    return (
+      <div className="max-w-md mx-auto py-20 px-4">
+        <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-xl">
+          <h2 className="text-2xl font-bold mb-6 dark:text-zinc-100">Вход в админ-панель</h2>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-6 py-3 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 transition-colors dark:text-zinc-100"
+              placeholder="Введите пароль"
+              autoFocus
+            />
+            <button
+              type="submit"
+              className="w-full py-3 rounded-2xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-sm font-bold hover:opacity-90 transition-opacity"
+            >
+              Войти
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto py-12 px-4">
+      <div className="flex items-center justify-between mb-8">
+        <h2 className="text-3xl font-extrabold dark:text-zinc-100 tracking-tight">Админ-панель</h2>
+        <button 
+          onClick={() => navigate('/')}
+          className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+        >
+          Вернуться на сайт
+        </button>
+      </div>
+
+      <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 overflow-hidden shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-zinc-100 dark:border-zinc-800">
+                <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase tracking-widest">Статья</th>
+                <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase tracking-widest">Автор</th>
+                <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase tracking-widest">Статус</th>
+                <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase tracking-widest text-right">Действия</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              {articles.map((article) => (
+                <tr key={article.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-4">
+                      <img src={article.image} className="w-10 h-10 rounded-lg object-cover" alt="" />
+                      <div>
+                        <div className="font-bold text-sm dark:text-zinc-100">{article.title}</div>
+                        <div className="text-xs text-zinc-500">{article.category}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-sm dark:text-zinc-300">{article.author}</td>
+                  <td className="px-6 py-4">
+                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
+                      article.is_draft 
+                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' 
+                        : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                    }`}>
+                      {article.is_draft ? 'Черновик' : 'Опубликовано'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <button 
+                        onClick={() => toggleDraft(article)}
+                        className="p-2 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                        title={article.is_draft ? "Опубликовать" : "В черновики"}
+                      >
+                        {article.is_draft ? <ShieldCheck className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                      </button>
+                      <Link 
+                        to={`/article/${article.id}`}
+                        className="p-2 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                        title="Просмотр"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                      </Link>
+                      <button 
+                        onClick={() => handleDelete(article.id)}
+                        className="p-2 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-600 dark:text-zinc-400 hover:text-red-600"
+                        title="Удалить"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function App() {
   const [isDark, setIsDark] = useState(true);
   const [user, setUser] = useState<SupabaseUser | null>(null);
@@ -1556,6 +1730,7 @@ export default function App() {
               <Route path="/create" element={user ? <ArticleEditor user={user} profile={profile} /> : <Navigate to="/auth" />} />
               <Route path="/edit/:id" element={user ? <ArticleEditor user={user} profile={profile} /> : <Navigate to="/auth" />} />
               <Route path="/settings" element={user ? <SettingsView profile={profile} onUpdate={() => fetchProfile(user.id)} /> : <Navigate to="/auth" />} />
+              <Route path="/admin" element={<AdminView />} />
               <Route path="/auth" element={user ? <Navigate to="/" /> : <Auth />} />
               <Route path="*" element={
                 <div className="text-center py-20 dark:text-zinc-100">
