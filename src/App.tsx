@@ -335,6 +335,13 @@ export default function App() {
               <Route path="/" element={<HomeView />} />
               <Route path="/article/:id" element={<ArticleDetail />} />
               <Route path="/profile/:author" element={<ProfileView />} />
+              <Route path="*" element={
+                <div className="text-center py-20 dark:text-zinc-100">
+                  <h1 className="text-4xl font-bold mb-4">404</h1>
+                  <p className="text-zinc-500 dark:text-zinc-400 mb-8">страница не найдена</p>
+                  <Link to="/" className="text-zinc-900 dark:text-zinc-100 underline">вернуться на главную</Link>
+                </div>
+              } />
             </Routes>
           </AnimatePresence>
         </main>
