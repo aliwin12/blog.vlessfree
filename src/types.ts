@@ -12,6 +12,7 @@ export interface Article {
   image: string;
   edit_count?: number;
   is_draft?: boolean;
+  created_at?: string;
 }
 
 export interface Profile {
@@ -41,6 +42,7 @@ export const MOCK_ARTICLES: Article[] = [
     author_badge: 'создатель',
     category: 'Новости',
     read_time: '1 мин',
-    image: 'https://i.ibb.co/xSrJq5ZZ/2026-03-17-214505.png'
+    image: 'https://i.ibb.co/xSrJq5ZZ/2026-03-17-214505.png',
+    created_at: '2026-03-17T12:00:00Z'
   }
 ];

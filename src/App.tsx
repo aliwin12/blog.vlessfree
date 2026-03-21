@@ -33,7 +33,9 @@ import {
   Layout,
   FileText,
   Image as ImageIcon,
-  Type as TypeIcon
+  Type as TypeIcon,
+  Filter,
+  ChevronDown
 } from 'lucide-react';
 import { 
   BrowserRouter as Router, 
@@ -977,6 +979,10 @@ const SettingsView = ({ profile, onUpdate }: { profile: Profile | null, onUpdate
 
 const HomeView = () => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('все');
+  const [selectedAuthor, setSelectedAuthor] = useState('все');
+  const [dateRange, setDateRange] = useState('все');
+  const [showFilters, setShowFilters] = useState(false);
   const [articles, setArticles] = useState<Article[]>(MOCK_ARTICLES);
   const [loading, setLoading] = useState(true);
 
@@ -1003,13 +1009,44 @@ const HomeView = () => {
 
     fetchArticles();
   }, []);
-  
-  const filteredArticles = articles.filter(article => 
-    article.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    article.excerpt.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    article.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    article.author.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+
+  const authors = Array.from(new Set(articles.map(a => a.author)));
+  const categories = ['все', 'Новости', 'Инструкции', 'Технологии', 'Обзоры'];
+
+  const filteredArticles = articles.filter(article => {
+    const matchesSearch = 
+      article.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      article.excerpt.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      article.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      article.author.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const matchesCategory = selectedCategory === 'все' || article.category === selectedCategory;
+    const matchesAuthor = selectedAuthor === 'все' || article.author === selectedAuthor;
+    
+    let matchesDate = true;
+    if (dateRange !== 'все') {
+      const articleDate = new Date(article.created_at || article.date);
+      const now = new Date();
+      if (dateRange === 'сегодня') {
+        matchesDate = articleDate.toDateString() === now.toDateString();
+      } else if (dateRange === 'неделя') {
+        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        matchesDate = articleDate >= weekAgo;
+      } else if (dateRange === 'месяц') {
+        const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        matchesDate = articleDate >= monthAgo;
+      }
+    }
+
+    return matchesSearch && matchesCategory && matchesAuthor && matchesDate;
+  });
+
+  const resetFilters = () => {
+    setSearchQuery('');
+    setSelectedCategory('все');
+    setSelectedAuthor('все');
+    setDateRange('все');
+  };
 
   return (
     <motion.div
@@ -1031,15 +1068,111 @@ const HomeView = () => {
           актуальные новости, подробные инструкции и лучшие практики по настройке vless, vpn и прокси.
         </p>
 
-        <div className="relative max-w-md mx-auto">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-          <input
-            type="text"
-            placeholder="поиск по статьям или авторам..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl px-11 py-3 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 transition-all shadow-sm"
-          />
+        <div className="relative max-w-xl mx-auto">
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+              <input
+                type="text"
+                placeholder="поиск по статьям или авторам..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl px-11 py-3 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 transition-all shadow-sm"
+              />
+            </div>
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={`px-4 py-3 rounded-2xl border transition-all flex items-center gap-2 text-sm font-medium ${
+                showFilters || selectedCategory !== 'все' || selectedAuthor !== 'все' || dateRange !== 'все'
+                  ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 border-zinc-900 dark:border-zinc-100'
+                  : 'bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:border-zinc-400'
+              }`}
+            >
+              <Filter className="w-4 h-4" />
+              <span className="hidden sm:inline">фильтры</span>
+            </button>
+          </div>
+
+          <AnimatePresence>
+            {showFilters && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="absolute top-full left-0 right-0 mt-4 p-6 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-xl z-20"
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                      <Layout className="w-3 h-3" /> категория
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={selectedCategory}
+                        onChange={(e) => setSelectedCategory(e.target.value)}
+                        className="w-full appearance-none bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-100 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 transition-all"
+                      >
+                        {categories.map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                      <User className="w-3 h-3" /> автор
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={selectedAuthor}
+                        onChange={(e) => setSelectedAuthor(e.target.value)}
+                        className="w-full appearance-none bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-100 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 transition-all"
+                      >
+                        <option value="все">все авторы</option>
+                        {authors.map(author => (
+                          <option key={author} value={author}>{author}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                      <Calendar className="w-3 h-3" /> дата
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={dateRange}
+                        onChange={(e) => setDateRange(e.target.value)}
+                        className="w-full appearance-none bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-100 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 transition-all"
+                      >
+                        <option value="все">за все время</option>
+                        <option value="сегодня">за сегодня</option>
+                        <option value="неделя">за неделю</option>
+                        <option value="месяц">за месяц</option>
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-6 pt-6 border-t border-zinc-100 dark:border-zinc-800 flex justify-between items-center">
+                  <p className="text-xs text-zinc-400">
+                    найдено статей: <span className="font-bold text-zinc-900 dark:text-zinc-100">{filteredArticles.length}</span>
+                  </p>
+                  <button
+                    onClick={resetFilters}
+                    className="text-xs font-bold text-emerald-600 hover:text-emerald-700 transition-colors"
+                  >
+                    сбросить все
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
