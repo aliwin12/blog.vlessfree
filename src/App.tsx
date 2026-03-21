@@ -18,7 +18,9 @@ import {
   Send,
   Twitter,
   Link as LinkIcon,
-  Check
+  Check,
+  LogOut,
+  LogIn
 } from 'lucide-react';
 import { 
   BrowserRouter as Router, 
@@ -26,45 +28,79 @@ import {
   Route, 
   Link, 
   useNavigate, 
-  useParams 
+  useParams,
+  Navigate
 } from 'react-router-dom';
 import Markdown from 'react-markdown';
 import { Article, MOCK_ARTICLES } from './types';
+import { supabase } from './lib/supabase';
+import { Auth } from './components/Auth';
+import { User as SupabaseUser } from '@supabase/supabase-js';
 
-const Navbar = ({ isDark, toggleDark }: { isDark: boolean, toggleDark: () => void }) => (
-  <nav className="sticky top-0 z-50 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md border-b border-zinc-200 dark:border-zinc-800 transition-colors">
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div className="flex justify-between h-16 items-center">
-        <Link 
-          to="/"
-          className="flex items-center cursor-pointer" 
-        >
-          <span className="text-xl font-medium text-zinc-900 dark:text-zinc-100">vlessfree</span>
-        </Link>
-        
-        <div className="flex items-center gap-4">
-          <a 
-            href="https://vlessfree.vercel.app" 
-            className="hidden sm:block text-sm font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+const Navbar = ({ isDark, toggleDark, user }: { isDark: boolean, toggleDark: () => void, user: SupabaseUser | null }) => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
+  return (
+    <nav className="sticky top-0 z-50 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md border-b border-zinc-200 dark:border-zinc-800 transition-colors">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between h-16 items-center">
+          <Link 
+            to="/"
+            className="flex items-center cursor-pointer" 
           >
-            вернуться на vlessfree
-          </a>
+            <span className="text-xl font-medium text-zinc-900 dark:text-zinc-100">vlessfree</span>
+          </Link>
           
-          <button 
-            onClick={toggleDark}
-            className="p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
-          >
-            {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-          </button>
-          
-          <div className="md:hidden">
-            <Menu className="w-6 h-6 text-zinc-600 dark:text-zinc-400" />
+          <div className="flex items-center gap-4">
+            <a 
+              href="https://vlessfree.vercel.app" 
+              className="hidden sm:block text-sm font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+            >
+              вернуться на vlessfree
+            </a>
+            
+            <button 
+              onClick={toggleDark}
+              className="p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+            >
+              {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            </button>
+
+            {user ? (
+              <div className="flex items-center gap-3">
+                <div className="hidden sm:flex flex-col items-end">
+                  <span className="text-xs font-bold dark:text-zinc-100">{user.email?.split('@')[0]}</span>
+                  <span className="text-[10px] text-zinc-500 uppercase tracking-widest">пользователь</span>
+                </div>
+                <button 
+                  onClick={handleLogout}
+                  className="p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20 text-zinc-600 dark:text-zinc-400 hover:text-red-600 transition-colors"
+                  title="Выйти"
+                >
+                  <LogOut className="w-5 h-5" />
+                </button>
+              </div>
+            ) : (
+              <Link 
+                to="/auth"
+                className="flex items-center gap-2 px-4 py-2 rounded-full bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-sm font-bold hover:opacity-90 transition-opacity"
+              >
+                <LogIn className="w-4 h-4" />
+                <span>войти</span>
+              </Link>
+            )}
+            
+            <div className="md:hidden">
+              <Menu className="w-6 h-6 text-zinc-600 dark:text-zinc-400" />
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  </nav>
-);
+    </nav>
+  );
+};
 
 const ArticleCard = ({ article }: { article: Article }) => (
   <motion.div 
@@ -255,22 +291,11 @@ const ArticleDetail = () => {
         <Markdown>{article.content}</Markdown>
       </div>
 
-      <footer className="mt-16 pt-8 border-t border-zinc-200 dark:border-zinc-800">
-        <div className="bg-zinc-900 dark:bg-zinc-800 rounded-3xl p-8 text-white flex flex-col md:flex-row items-center justify-between gap-6">
-          <div>
-            <h3 className="text-xl font-bold mb-2">понравилась статья?</h3>
-            <p className="text-zinc-400 text-sm">подпишитесь на нашу рассылку, чтобы получать новые туториалы первыми.</p>
-          </div>
-          <div className="flex w-full md:w-auto gap-2">
-            <input 
-              type="email" 
-              placeholder="ваш email" 
-              className="bg-white/10 border border-white/20 rounded-full px-4 py-2 text-sm flex-grow md:w-64 focus:outline-none focus:border-white/40"
-            />
-            <button className="bg-white text-zinc-900 px-6 py-2 rounded-full text-sm font-bold hover:bg-zinc-100 transition-colors">
-              ok
-            </button>
-          </div>
+      <footer className="mt-16 pt-8 border-t border-zinc-200 dark:border-zinc-800 text-center">
+        <div className="text-zinc-400 dark:text-zinc-500 text-sm font-mono">
+          <p className="mb-2">--------------------------------------</p>
+          <p>Это конец статьи.</p>
+          <p>(с) 2026 vlessfree</p>
         </div>
       </footer>
     </motion.div>
@@ -370,6 +395,21 @@ const HomeView = () => (
 
 export default function App() {
   const [isDark, setIsDark] = useState(true);
+  const [user, setUser] = useState<SupabaseUser | null>(null);
+
+  useEffect(() => {
+    // Check current session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (isDark) {
@@ -381,10 +421,11 @@ export default function App() {
 
   return (
     <Router>
-      <div className="min-h-screen transition-colors duration-300">
+      <div className="min-h-screen transition-colors duration-300 bg-zinc-50 dark:bg-zinc-950 selection:bg-zinc-900 selection:text-white dark:selection:bg-zinc-100 dark:selection:text-zinc-900">
         <Navbar 
           isDark={isDark} 
           toggleDark={() => setIsDark(!isDark)} 
+          user={user}
         />
         
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -393,6 +434,7 @@ export default function App() {
               <Route path="/" element={<HomeView />} />
               <Route path="/article/:id" element={<ArticleDetail />} />
               <Route path="/profile/:author" element={<ProfileView />} />
+              <Route path="/auth" element={user ? <Navigate to="/" /> : <Auth />} />
               <Route path="*" element={
                 <div className="text-center py-20 dark:text-zinc-100">
                   <h1 className="text-4xl font-bold mb-4">404</h1>
