@@ -14,7 +14,11 @@ import {
   Share2,
   Bookmark,
   Moon,
-  Sun
+  Sun,
+  Send,
+  Twitter,
+  Link as LinkIcon,
+  Check
 } from 'lucide-react';
 import { 
   BrowserRouter as Router, 
@@ -124,8 +128,39 @@ const ArticleDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const article = MOCK_ARTICLES.find(a => a.id === id);
+  const [copied, setCopied] = useState(false);
 
   if (!article) return <div className="text-center py-20 dark:text-zinc-100">статья не найдена</div>;
+
+  const shareUrl = window.location.href;
+  const shareTitle = article.title;
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(shareUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const shareLinks = [
+    {
+      name: 'Telegram',
+      icon: <Send className="w-4 h-4" />,
+      url: `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareTitle)}`,
+      color: 'bg-sky-50 dark:bg-sky-900/20 text-sky-600 dark:text-sky-400 hover:bg-sky-500 hover:text-white transition-all'
+    },
+    {
+      name: 'VK',
+      icon: <Share2 className="w-4 h-4" />,
+      url: `https://vk.com/share.php?url=${encodeURIComponent(shareUrl)}&title=${encodeURIComponent(shareTitle)}`,
+      color: 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-600 hover:text-white transition-all'
+    },
+    {
+      name: 'Twitter',
+      icon: <Twitter className="w-4 h-4" />,
+      url: `https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareTitle)}`,
+      color: 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-900 dark:hover:bg-white dark:hover:text-zinc-900 hover:text-white transition-all'
+    }
+  ];
 
   return (
     <motion.div 
@@ -157,7 +192,7 @@ const ArticleDetail = () => {
           {article.title}
         </h1>
 
-        <div className="flex items-center justify-between py-6 border-y border-zinc-200 dark:border-zinc-800">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between py-6 border-y border-zinc-200 dark:border-zinc-800 gap-6">
           <Link 
             to={`/profile/${article.author}`}
             className="flex items-center gap-3 cursor-pointer hover:opacity-70 transition-opacity"
@@ -177,9 +212,32 @@ const ArticleDetail = () => {
               <p className="text-xs text-zinc-500 dark:text-zinc-400">технический эксперт</p>
             </div>
           </Link>
-          <div className="flex items-center gap-2">
-            <button className="p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"><Share2 className="w-5 h-5 text-zinc-500 dark:text-zinc-400" /></button>
-            <button className="p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"><Bookmark className="w-5 h-5 text-zinc-500 dark:text-zinc-400" /></button>
+          
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-bold text-zinc-400 dark:text-zinc-600 uppercase tracking-widest mr-2">поделиться:</span>
+            {shareLinks.map((link) => (
+              <a
+                key={link.name}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`p-2 rounded-xl flex items-center justify-center ${link.color}`}
+                title={link.name}
+              >
+                {link.icon}
+              </a>
+            ))}
+            <button 
+              onClick={handleCopyLink}
+              className={`p-2 rounded-xl flex items-center justify-center transition-all ${
+                copied 
+                  ? 'bg-emerald-500 text-white' 
+                  : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+              }`}
+              title="Копировать ссылку"
+            >
+              {copied ? <Check className="w-4 h-4" /> : <LinkIcon className="w-4 h-4" />}
+            </button>
           </div>
         </div>
       </header>
