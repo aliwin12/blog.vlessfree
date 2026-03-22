@@ -1528,11 +1528,18 @@ const AdminView = () => {
         supabase.from('comments').select('*, articles(title), profiles(username)').order('created_at', { ascending: false })
       ]);
 
+      if (articlesRes.error) throw articlesRes.error;
+      if (profilesRes.error) throw profilesRes.error;
+      if (commentsRes.error) throw commentsRes.error;
+
       if (articlesRes.data) setArticles(articlesRes.data);
       if (profilesRes.data) setProfiles(profilesRes.data);
       if (commentsRes.data) setComments(commentsRes.data);
-    } catch (err) {
+      
+      setToast({ message: 'Данные обновлены!', type: 'success' });
+    } catch (err: any) {
       console.error('Error fetching admin data:', err);
+      setToast({ message: 'Ошибка при загрузке: ' + err.message, type: 'error' });
     }
     setLoading(false);
   };
@@ -1551,8 +1558,9 @@ const AdminView = () => {
     const { error } = await supabase.from('articles').delete().eq('id', id);
     if (!error) {
       setArticles(articles.filter(a => a.id !== id));
+      setToast({ message: 'Статья удалена!', type: 'success' });
     } else {
-      alert('Ошибка при удалении: ' + error.message);
+      setToast({ message: 'Ошибка при удалении: ' + error.message, type: 'error' });
     }
   };
 
@@ -1561,8 +1569,9 @@ const AdminView = () => {
     const { error } = await supabase.from('profiles').delete().eq('id', id);
     if (!error) {
       setProfiles(profiles.filter(p => p.id !== id));
+      setToast({ message: 'Профиль удален!', type: 'success' });
     } else {
-      alert('Ошибка при удалении: ' + error.message);
+      setToast({ message: 'Ошибка при удалении: ' + error.message, type: 'error' });
     }
   };
 
@@ -1571,19 +1580,28 @@ const AdminView = () => {
     const { error } = await supabase.from('comments').delete().eq('id', id);
     if (!error) {
       setComments(comments.filter(c => c.id !== id));
+      setToast({ message: 'Комментарий удален!', type: 'success' });
     } else {
-      alert('Ошибка при удалении: ' + error.message);
+      setToast({ message: 'Ошибка при удалении: ' + error.message, type: 'error' });
     }
   };
 
   const toggleDraft = async (article: Article) => {
-    const { error } = await supabase
+    const { error, count } = await supabase
       .from('articles')
-      .update({ is_draft: !article.is_draft })
+      .update({ is_draft: !article.is_draft }, { count: 'exact' })
       .eq('id', article.id);
     
-    if (!error) {
+    if (error) {
+      setToast({ message: 'Ошибка: ' + error.message, type: 'error' });
+    } else if (count === 0) {
+      setToast({ message: 'Ошибка: Статья не найдена в базе данных', type: 'error' });
+    } else {
       setArticles(articles.map(a => a.id === article.id ? { ...a, is_draft: !a.is_draft } : a));
+      setToast({ 
+        message: article.is_draft ? 'Статья опубликована!' : 'Статья переведена в черновики!', 
+        type: 'success' 
+      });
     }
   };
 
