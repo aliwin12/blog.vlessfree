@@ -38,7 +38,11 @@ import {
   Image as ImageIcon,
   Type as TypeIcon,
   Filter,
-  ChevronDown
+  ChevronDown,
+  BarChart3,
+  Users,
+  MessageCircle,
+  Edit2
 } from 'lucide-react';
 import { 
   BrowserRouter as Router, 
@@ -978,13 +982,14 @@ const SettingsView = ({ profile, onUpdate }: { profile: Profile | null, onUpdate
         </div>
       </form>
 
-      <div className="mt-12 flex justify-center">
+      <div className="mt-12 flex justify-center group/admin">
         <button
           onClick={() => navigate('/admin')}
-          className="text-[10px] text-zinc-200 dark:text-zinc-800 hover:text-zinc-400 dark:hover:text-zinc-600 transition-colors"
+          className="text-[10px] text-zinc-200 dark:text-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-100 transition-all hover:scale-150 active:scale-90 p-2 flex items-center gap-1"
           title="админ"
         >
           .
+          <span className="opacity-0 group-hover/admin:opacity-100 transition-opacity text-[8px] font-bold uppercase tracking-widest">admin</span>
         </button>
       </div>
     </motion.div>
@@ -1487,26 +1492,39 @@ const ArticleEditor = ({ user, profile }: { user: SupabaseUser | null, profile: 
 const AdminView = () => {
   const [password, setPassword] = useState('');
   const [isAuthorized, setIsAuthorized] = useState(false);
+  const [activeTab, setActiveTab] = useState<'stats' | 'articles' | 'users' | 'comments'>('stats');
   const [articles, setArticles] = useState<Article[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [comments, setComments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
   const navigate = useNavigate();
+
+  console.log('AdminView rendered, isAuthorized:', isAuthorized);
 
   const ADMIN_PASSWORD = 'MiOiJzdXBhYmFzZSIsInJlZiI6Im';
 
   useEffect(() => {
     if (isAuthorized) {
-      fetchArticles();
+      fetchAllData();
     }
   }, [isAuthorized]);
 
-  const fetchArticles = async () => {
+  const fetchAllData = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('articles')
-      .select('*')
-      .order('created_at', { ascending: false });
-    
-    if (data) setArticles(data);
+    try {
+      const [articlesRes, profilesRes, commentsRes] = await Promise.all([
+        supabase.from('articles').select('*').order('created_at', { ascending: false }),
+        supabase.from('profiles').select('*').order('created_at', { ascending: false }),
+        supabase.from('comments').select('*, articles(title), profiles(username)').order('created_at', { ascending: false })
+      ]);
+
+      if (articlesRes.data) setArticles(articlesRes.data);
+      if (profilesRes.data) setProfiles(profilesRes.data);
+      if (commentsRes.data) setComments(commentsRes.data);
+    } catch (err) {
+      console.error('Error fetching admin data:', err);
+    }
     setLoading(false);
   };
 
@@ -1519,11 +1537,33 @@ const AdminView = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDeleteArticle = async (id: string) => {
     if (!confirm('Вы уверены, что хотите удалить эту статью?')) return;
     const { error } = await supabase.from('articles').delete().eq('id', id);
     if (!error) {
       setArticles(articles.filter(a => a.id !== id));
+    } else {
+      alert('Ошибка при удалении: ' + error.message);
+    }
+  };
+
+  const handleDeleteProfile = async (id: string) => {
+    if (!confirm('Вы уверены, что хотите удалить этого пользователя? Это также удалит все его статьи и комментарии.')) return;
+    const { error } = await supabase.from('profiles').delete().eq('id', id);
+    if (!error) {
+      setProfiles(profiles.filter(p => p.id !== id));
+    } else {
+      alert('Ошибка при удалении: ' + error.message);
+    }
+  };
+
+  const handleDeleteComment = async (id: string) => {
+    if (!confirm('Вы уверены, что хотите удалить этот комментарий?')) return;
+    const { error } = await supabase.from('comments').delete().eq('id', id);
+    if (!error) {
+      setComments(comments.filter(c => c.id !== id));
+    } else {
+      alert('Ошибка при удалении: ' + error.message);
     }
   };
 
@@ -1538,108 +1578,357 @@ const AdminView = () => {
     }
   };
 
+  const filteredArticles = articles.filter(a => 
+    a.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    a.author.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const filteredProfiles = profiles.filter(p => 
+    p.username.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    p.id.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const filteredComments = comments.filter(c => 
+    c.content.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    (c.profiles?.username || c.author_name || '').toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   if (!isAuthorized) {
     return (
       <div className="max-w-md mx-auto py-20 px-4">
-        <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-xl">
-          <h2 className="text-2xl font-bold mb-6 dark:text-zinc-100">Вход в админ-панель</h2>
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-2xl"
+        >
+          <div className="w-16 h-16 bg-zinc-900 dark:bg-zinc-100 rounded-2xl flex items-center justify-center mb-8 mx-auto shadow-lg">
+            <Shield className="w-8 h-8 text-white dark:text-zinc-900" />
+          </div>
+          <h2 className="text-2xl font-black mb-2 text-center dark:text-zinc-100 tracking-tight">ADMIN ACCESS</h2>
+          <p className="text-zinc-500 dark:text-zinc-400 text-sm text-center mb-8">введите секретный ключ для входа (v2.0)</p>
           <form onSubmit={handleLogin} className="space-y-4">
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-6 py-3 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 transition-colors dark:text-zinc-100"
-              placeholder="Введите пароль"
-              autoFocus
-            />
+            <div className="relative">
+              <Zap className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-11 py-4 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 transition-colors dark:text-zinc-100 font-mono"
+                placeholder="••••••••••••"
+                autoFocus
+              />
+            </div>
             <button
               type="submit"
-              className="w-full py-3 rounded-2xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-sm font-bold hover:opacity-90 transition-opacity"
+              className="w-full py-4 rounded-2xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-sm font-black hover:opacity-90 transition-all active:scale-[0.98] shadow-lg shadow-zinc-900/10 dark:shadow-white/5"
             >
-              Войти
+              АВТОРИЗОВАТЬСЯ
             </button>
           </form>
-        </div>
+        </motion.div>
       </div>
     );
   }
 
   return (
     <div className="max-w-6xl mx-auto py-12 px-4">
-      <div className="flex items-center justify-between mb-8">
-        <h2 className="text-3xl font-extrabold dark:text-zinc-100 tracking-tight">Админ-панель</h2>
-        <button 
-          onClick={() => navigate('/')}
-          className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
-        >
-          Вернуться на сайт
-        </button>
+      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between mb-12 gap-8">
+        <div>
+          <div className="flex items-center gap-3 mb-2">
+            <span className="px-2 py-0.5 rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-[10px] font-black uppercase tracking-widest">System</span>
+            <h2 className="text-4xl font-black dark:text-zinc-100 tracking-tighter">АДМИН-ПАНЕЛЬ</h2>
+          </div>
+          <p className="text-zinc-500 dark:text-zinc-400 text-sm font-medium">Управление контентом, пользователями и безопасностью</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+          <div className="relative flex-1 lg:w-64">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Поиск..."
+              className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl px-11 py-3 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 transition-colors dark:text-zinc-100"
+            />
+          </div>
+          <button 
+            onClick={fetchAllData}
+            disabled={loading}
+            className="p-3 rounded-2xl bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all disabled:opacity-50"
+          >
+            <Zap className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+          <button 
+            onClick={() => navigate('/')}
+            className="px-6 py-3 rounded-2xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-sm font-bold hover:opacity-90 transition-opacity"
+          >
+            Выход
+          </button>
+        </div>
       </div>
 
-      <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-zinc-100 dark:border-zinc-800">
-                <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase tracking-widest">Статья</th>
-                <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase tracking-widest">Автор</th>
-                <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase tracking-widest">Статус</th>
-                <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase tracking-widest text-right">Действия</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {articles.map((article) => (
-                <tr key={article.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-4">
-                      <img src={article.image} className="w-10 h-10 rounded-lg object-cover" alt="" />
-                      <div>
-                        <div className="font-bold text-sm dark:text-zinc-100">{article.title}</div>
-                        <div className="text-xs text-zinc-500">{article.category}</div>
+      <div className="flex flex-wrap gap-2 mb-10 p-1.5 bg-zinc-100 dark:bg-zinc-900/50 rounded-3xl w-fit border border-zinc-200 dark:border-zinc-800">
+        {[
+          { id: 'stats', label: 'Статистика', icon: BarChart3 },
+          { id: 'articles', label: 'Статьи', icon: FileText },
+          { id: 'users', label: 'Пользователи', icon: Users },
+          { id: 'comments', label: 'Комментарии', icon: MessageCircle },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => {
+              setActiveTab(tab.id as any);
+              setSearchQuery('');
+            }}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-2xl text-sm font-bold transition-all ${
+              activeTab === tab.id 
+                ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-md ring-1 ring-zinc-200 dark:ring-zinc-700' 
+                : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
+            }`}
+          >
+            <tab.icon className="w-4 h-4" />
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'stats' && (
+        <div className="space-y-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              { label: 'Всего статей', value: articles.length, icon: FileText, color: 'text-blue-500', bg: 'bg-blue-500/10' },
+              { label: 'Пользователей', value: profiles.length, icon: Users, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
+              { label: 'Комментариев', value: comments.length, icon: MessageCircle, color: 'text-amber-500', bg: 'bg-amber-500/10' },
+            ].map((stat) => (
+              <div key={stat.label} className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm hover:shadow-md transition-shadow">
+                <div className={`w-12 h-12 ${stat.bg} ${stat.color} rounded-2xl flex items-center justify-center mb-6`}>
+                  <stat.icon className="w-6 h-6" />
+                </div>
+                <div className="text-4xl font-black dark:text-zinc-100 mb-1">{stat.value}</div>
+                <div className="text-sm font-bold text-zinc-400 uppercase tracking-widest">{stat.label}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
+            <h3 className="text-xl font-black mb-6 dark:text-zinc-100 tracking-tight flex items-center gap-2">
+              <Clock className="w-5 h-5 text-zinc-400" /> Последние действия
+            </h3>
+            <div className="space-y-4">
+              {articles.slice(0, 3).map(a => (
+                <div key={a.id} className="flex items-center justify-between py-3 border-b border-zinc-100 dark:border-zinc-800 last:border-0">
+                  <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 rounded-full bg-blue-500" />
+                    <span className="text-sm dark:text-zinc-300 font-medium">Новая статья: <span className="font-bold text-zinc-900 dark:text-zinc-100">{a.title}</span></span>
+                  </div>
+                  <span className="text-xs text-zinc-400">{new Date(a.created_at || '').toLocaleDateString()}</span>
+                </div>
+              ))}
+              {comments.slice(0, 3).map(c => (
+                <div key={c.id} className="flex items-center justify-between py-3 border-b border-zinc-100 dark:border-zinc-800 last:border-0">
+                  <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 rounded-full bg-amber-500" />
+                    <span className="text-sm dark:text-zinc-300 font-medium">Новый комментарий от <span className="font-bold text-zinc-900 dark:text-zinc-100">{c.profiles?.username || c.author_name || 'Аноним'}</span></span>
+                  </div>
+                  <span className="text-xs text-zinc-400">{new Date(c.created_at).toLocaleDateString()}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'articles' && (
+        <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/20">
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest">Статья</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest">Автор</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest">Статус</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest text-right">Действия</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {filteredArticles.map((article) => (
+                  <tr key={article.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors group">
+                    <td className="px-6 py-5">
+                      <div className="flex items-center gap-4">
+                        <img src={article.image} className="w-14 h-14 rounded-2xl object-cover shadow-sm group-hover:scale-105 transition-transform" alt="" />
+                        <div>
+                          <div className="font-bold text-sm dark:text-zinc-100 line-clamp-1 mb-1">{article.title}</div>
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-500 text-[10px] font-bold uppercase tracking-widest">{article.category}</span>
+                            <span className="text-[10px] text-zinc-400 font-medium flex items-center gap-1">
+                              <Clock className="w-3 h-3" /> {article.read_time}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-sm dark:text-zinc-300">{article.author}</td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
-                      article.is_draft 
-                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' 
-                        : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                    }`}>
-                      {article.is_draft ? 'Черновик' : 'Опубликовано'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
+                    </td>
+                    <td className="px-6 py-5">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center overflow-hidden">
+                          <User className="w-3 h-3 text-zinc-400" />
+                        </div>
+                        <span className="text-sm dark:text-zinc-300 font-bold">{article.author}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-5">
+                      <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                        article.is_draft 
+                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' 
+                          : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                      }`}>
+                        {article.is_draft ? 'Черновик' : 'Опубликовано'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-5 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button 
+                          onClick={() => toggleDraft(article)}
+                          className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                          title={article.is_draft ? "Опубликовать" : "В черновики"}
+                        >
+                          {article.is_draft ? <ShieldCheck className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                        </button>
+                        <button 
+                          onClick={() => navigate(`/edit/${article.id}`)}
+                          className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                          title="Редактировать"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <Link 
+                          to={`/article/${article.id}`}
+                          className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                          title="Просмотр"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </Link>
+                        <button 
+                          onClick={() => handleDeleteArticle(article.id)}
+                          className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-600 dark:text-zinc-400 hover:text-red-600"
+                          title="Удалить"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'users' && (
+        <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/20">
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest">Профиль</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest">ID</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest">Регистрация</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest text-right">Действия</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {filteredProfiles.map((p) => (
+                  <tr key={p.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
+                    <td className="px-6 py-5">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center overflow-hidden shadow-sm">
+                          {p.avatar_url ? (
+                            <img src={p.avatar_url} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <User className="w-6 h-6 text-zinc-400" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="font-bold text-sm dark:text-zinc-100">{p.username}</div>
+                          <div className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">User</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-5 text-xs font-mono text-zinc-500">{p.id}</td>
+                    <td className="px-6 py-5 text-sm text-zinc-500 font-medium">
+                      {new Date(p.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="px-6 py-5 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <Link 
+                          to={`/profile/${p.id}`}
+                          className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                          title="Просмотр"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </Link>
+                        <button 
+                          onClick={() => handleDeleteProfile(p.id)}
+                          className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-600 dark:text-zinc-400 hover:text-red-600"
+                          title="Удалить"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'comments' && (
+        <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/20">
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest">Комментарий</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest">Статья</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest">Автор</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest text-right">Действия</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {filteredComments.map((c) => (
+                  <tr key={c.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
+                    <td className="px-6 py-5">
+                      <div className="text-sm dark:text-zinc-100 line-clamp-2 max-w-md font-medium leading-relaxed">{c.content}</div>
+                      <div className="text-[10px] text-zinc-400 mt-1">{new Date(c.created_at).toLocaleString()}</div>
+                    </td>
+                    <td className="px-6 py-5">
+                      <div className="text-xs text-zinc-500 font-bold line-clamp-1 max-w-[200px]">
+                        {c.articles?.title || 'Удаленная статья'}
+                      </div>
+                    </td>
+                    <td className="px-6 py-5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm dark:text-zinc-300 font-bold">{c.profiles?.username || c.author_name}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-5 text-right">
                       <button 
-                        onClick={() => toggleDraft(article)}
-                        className="p-2 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
-                        title={article.is_draft ? "Опубликовать" : "В черновики"}
-                      >
-                        {article.is_draft ? <ShieldCheck className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                      </button>
-                      <Link 
-                        to={`/article/${article.id}`}
-                        className="p-2 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
-                        title="Просмотр"
-                      >
-                        <ExternalLink className="w-4 h-4" />
-                      </Link>
-                      <button 
-                        onClick={() => handleDelete(article.id)}
-                        className="p-2 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-600 dark:text-zinc-400 hover:text-red-600"
+                        onClick={() => handleDeleteComment(c.id)}
+                        className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-600 dark:text-zinc-400 hover:text-red-600"
                         title="Удалить"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
