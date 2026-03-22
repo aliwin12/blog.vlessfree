@@ -42,7 +42,8 @@ import {
   BarChart3,
   Users,
   MessageCircle,
-  Edit2
+  Edit2,
+  FileEdit
 } from 'lucide-react';
 import { 
   BrowserRouter as Router, 
@@ -1498,6 +1499,14 @@ const AdminView = () => {
   const [comments, setComments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [editingArticleId, setEditingArticleId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const [editUsername, setEditUsername] = useState('');
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editCommentContent, setEditCommentContent] = useState('');
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
   const navigate = useNavigate();
 
   console.log('AdminView rendered, isAuthorized:', isAuthorized);
@@ -1578,6 +1587,74 @@ const AdminView = () => {
     }
   };
 
+  const handleApplyChanges = async (id: string) => {
+    const { error } = await supabase
+      .from('articles')
+      .update({ 
+        title: editTitle,
+        category: editCategory
+      })
+      .eq('id', id);
+    
+    if (!error) {
+      setArticles(articles.map(a => a.id === id ? { ...a, title: editTitle, category: editCategory } : a));
+      setEditingArticleId(null);
+      setToast({ message: 'Статья обновлена!', type: 'success' });
+    } else {
+      setToast({ message: 'Ошибка: ' + error.message, type: 'error' });
+    }
+  };
+
+  const startEditing = (article: Article) => {
+    setEditingArticleId(article.id);
+    setEditTitle(article.title);
+    setEditCategory(article.category);
+  };
+
+  const handleApplyProfileChanges = async (id: string) => {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ 
+        username: editUsername
+      })
+      .eq('id', id);
+    
+    if (!error) {
+      setProfiles(profiles.map(p => p.id === id ? { ...p, username: editUsername } : p));
+      setEditingProfileId(null);
+      setToast({ message: 'Профиль обновлен!', type: 'success' });
+    } else {
+      setToast({ message: 'Ошибка: ' + error.message, type: 'error' });
+    }
+  };
+
+  const startEditingProfile = (profile: Profile) => {
+    setEditingProfileId(profile.id);
+    setEditUsername(profile.username);
+  };
+
+  const handleApplyCommentChanges = async (id: string) => {
+    const { error } = await supabase
+      .from('comments')
+      .update({ 
+        content: editCommentContent
+      })
+      .eq('id', id);
+    
+    if (!error) {
+      setComments(comments.map(c => c.id === id ? { ...c, content: editCommentContent } : c));
+      setEditingCommentId(null);
+      setToast({ message: 'Комментарий обновлен!', type: 'success' });
+    } else {
+      setToast({ message: 'Ошибка: ' + error.message, type: 'error' });
+    }
+  };
+
+  const startEditingComment = (comment: any) => {
+    setEditingCommentId(comment.id);
+    setEditCommentContent(comment.content);
+  };
+
   const filteredArticles = articles.filter(a => 
     a.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
     a.author.toLowerCase().includes(searchQuery.toLowerCase())
@@ -1592,6 +1669,13 @@ const AdminView = () => {
     c.content.toLowerCase().includes(searchQuery.toLowerCase()) || 
     (c.profiles?.username || c.author_name || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   if (!isAuthorized) {
     return (
@@ -1641,6 +1725,20 @@ const AdminView = () => {
           <p className="text-zinc-500 dark:text-zinc-400 text-sm font-medium">Управление контентом, пользователями и безопасностью</p>
         </div>
         <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+          <AnimatePresence>
+            {toast && (
+              <motion.div
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg ${
+                  toast.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'
+                }`}
+              >
+                {toast.message}
+              </motion.div>
+            )}
+          </AnimatePresence>
           <div className="relative flex-1 lg:w-64">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
             <input
@@ -1654,9 +1752,10 @@ const AdminView = () => {
           <button 
             onClick={fetchAllData}
             disabled={loading}
-            className="p-3 rounded-2xl bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all disabled:opacity-50"
+            className="px-6 py-3 rounded-2xl bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all disabled:opacity-50 flex items-center gap-2 font-bold text-sm"
           >
-            <Zap className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+            <Zap className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Обновить данные
           </button>
           <button 
             onClick={() => navigate('/')}
@@ -1756,10 +1855,31 @@ const AdminView = () => {
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-4">
                         <img src={article.image} className="w-14 h-14 rounded-2xl object-cover shadow-sm group-hover:scale-105 transition-transform" alt="" />
-                        <div>
-                          <div className="font-bold text-sm dark:text-zinc-100 line-clamp-1 mb-1">{article.title}</div>
+                        <div className="flex-1">
+                          {editingArticleId === article.id ? (
+                            <input
+                              type="text"
+                              value={editTitle}
+                              onChange={(e) => setEditTitle(e.target.value)}
+                              className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 dark:text-zinc-100 mb-2"
+                            />
+                          ) : (
+                            <div className="font-bold text-sm dark:text-zinc-100 line-clamp-1 mb-1">{article.title}</div>
+                          )}
                           <div className="flex items-center gap-2">
-                            <span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-500 text-[10px] font-bold uppercase tracking-widest">{article.category}</span>
+                            {editingArticleId === article.id ? (
+                              <select
+                                value={editCategory}
+                                onChange={(e) => setEditCategory(e.target.value)}
+                                className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-[10px] focus:outline-none dark:text-zinc-100"
+                              >
+                                {['Новости', 'Инструкции', 'Технологии', 'Обзоры'].map(cat => (
+                                  <option key={cat} value={cat}>{cat}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-500 text-[10px] font-bold uppercase tracking-widest">{article.category}</span>
+                            )}
                             <span className="text-[10px] text-zinc-400 font-medium flex items-center gap-1">
                               <Clock className="w-3 h-3" /> {article.read_time}
                             </span>
@@ -1786,34 +1906,60 @@ const AdminView = () => {
                     </td>
                     <td className="px-6 py-5 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <button 
-                          onClick={() => toggleDraft(article)}
-                          className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
-                          title={article.is_draft ? "Опубликовать" : "В черновики"}
-                        >
-                          {article.is_draft ? <ShieldCheck className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                        </button>
-                        <button 
-                          onClick={() => navigate(`/edit/${article.id}`)}
-                          className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
-                          title="Редактировать"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <Link 
-                          to={`/article/${article.id}`}
-                          className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
-                          title="Просмотр"
-                        >
-                          <ExternalLink className="w-4 h-4" />
-                        </Link>
-                        <button 
-                          onClick={() => handleDeleteArticle(article.id)}
-                          className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-600 dark:text-zinc-400 hover:text-red-600"
-                          title="Удалить"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {editingArticleId === article.id ? (
+                          <>
+                            <button 
+                              onClick={() => handleApplyChanges(article.id)}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-colors flex items-center gap-1"
+                            >
+                              <Check className="w-3 h-3" /> Применить
+                            </button>
+                            <button 
+                              onClick={() => setEditingArticleId(null)}
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button 
+                              onClick={() => toggleDraft(article)}
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                              title={article.is_draft ? "Опубликовать" : "В черновики"}
+                            >
+                              {article.is_draft ? <ShieldCheck className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                            </button>
+                            <button 
+                              onClick={() => startEditing(article)}
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                              title="Быстрое редактирование"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => navigate(`/edit/${article.id}`)}
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                              title="Полное редактирование"
+                            >
+                              <FileEdit className="w-4 h-4" />
+                            </button>
+                            <Link 
+                              to={`/article/${article.id}`}
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                              title="Просмотр"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                            </Link>
+                            <button 
+                              onClick={() => handleDeleteArticle(article.id)}
+                              className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-600 dark:text-zinc-400 hover:text-red-600"
+                              title="Удалить"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1849,7 +1995,16 @@ const AdminView = () => {
                           )}
                         </div>
                         <div>
-                          <div className="font-bold text-sm dark:text-zinc-100">{p.username}</div>
+                          {editingProfileId === p.id ? (
+                            <input
+                              type="text"
+                              value={editUsername}
+                              onChange={(e) => setEditUsername(e.target.value)}
+                              className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 dark:text-zinc-100 mb-1"
+                            />
+                          ) : (
+                            <div className="font-bold text-sm dark:text-zinc-100">{p.username}</div>
+                          )}
                           <div className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">User</div>
                         </div>
                       </div>
@@ -1860,20 +2015,46 @@ const AdminView = () => {
                     </td>
                     <td className="px-6 py-5 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <Link 
-                          to={`/profile/${p.id}`}
-                          className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
-                          title="Просмотр"
-                        >
-                          <ExternalLink className="w-4 h-4" />
-                        </Link>
-                        <button 
-                          onClick={() => handleDeleteProfile(p.id)}
-                          className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-600 dark:text-zinc-400 hover:text-red-600"
-                          title="Удалить"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {editingProfileId === p.id ? (
+                          <>
+                            <button 
+                              onClick={() => handleApplyProfileChanges(p.id)}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-colors flex items-center gap-1"
+                            >
+                              <Check className="w-3 h-3" /> Применить
+                            </button>
+                            <button 
+                              onClick={() => setEditingProfileId(null)}
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button 
+                              onClick={() => startEditingProfile(p)}
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                              title="Редактировать"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <Link 
+                              to={`/profile/${p.id}`}
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                              title="Просмотр"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                            </Link>
+                            <button 
+                              onClick={() => handleDeleteProfile(p.id)}
+                              className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-600 dark:text-zinc-400 hover:text-red-600"
+                              title="Удалить"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1900,8 +2081,21 @@ const AdminView = () => {
                 {filteredComments.map((c) => (
                   <tr key={c.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
                     <td className="px-6 py-5">
-                      <div className="text-sm dark:text-zinc-100 line-clamp-2 max-w-md font-medium leading-relaxed">{c.content}</div>
-                      <div className="text-[10px] text-zinc-400 mt-1">{new Date(c.created_at).toLocaleString()}</div>
+                      {editingCommentId === c.id ? (
+                        <div className="flex flex-col gap-2">
+                          <textarea
+                            value={editCommentContent}
+                            onChange={(e) => setEditCommentContent(e.target.value)}
+                            className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 dark:text-zinc-100 w-full min-h-[80px] resize-none"
+                          />
+                          <div className="text-[10px] text-zinc-400">{new Date(c.created_at).toLocaleString()}</div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="text-sm dark:text-zinc-100 line-clamp-2 max-w-md font-medium leading-relaxed">{c.content}</div>
+                          <div className="text-[10px] text-zinc-400 mt-1">{new Date(c.created_at).toLocaleString()}</div>
+                        </>
+                      )}
                     </td>
                     <td className="px-6 py-5">
                       <div className="text-xs text-zinc-500 font-bold line-clamp-1 max-w-[200px]">
@@ -1914,13 +2108,41 @@ const AdminView = () => {
                       </div>
                     </td>
                     <td className="px-6 py-5 text-right">
-                      <button 
-                        onClick={() => handleDeleteComment(c.id)}
-                        className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-600 dark:text-zinc-400 hover:text-red-600"
-                        title="Удалить"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        {editingCommentId === c.id ? (
+                          <>
+                            <button 
+                              onClick={() => handleApplyCommentChanges(c.id)}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-colors flex items-center gap-1"
+                            >
+                              <Check className="w-3 h-3" /> Применить
+                            </button>
+                            <button 
+                              onClick={() => setEditingCommentId(null)}
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button 
+                              onClick={() => startEditingComment(c)}
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                              title="Редактировать"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteComment(c.id)}
+                              className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-600 dark:text-zinc-400 hover:text-red-600"
+                              title="Удалить"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
