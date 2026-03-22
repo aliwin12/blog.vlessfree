@@ -104,21 +104,21 @@ const Navbar = ({ isDark, toggleDark, user, profile }: { isDark: boolean, toggle
                 <div className="flex items-center gap-1">
                   <Link 
                     to={`/profile/${user.id}`}
-                    className="p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                    className="p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-400"
                     title="Мой профиль"
                   >
                     <User className="w-5 h-5" />
                   </Link>
                   <Link 
                     to="/settings"
-                    className="p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                    className="p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-400"
                     title="Настройки"
                   >
                     <Settings className="w-5 h-5" />
                   </Link>
                   <button 
                     onClick={handleLogout}
-                    className="p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20 text-zinc-600 dark:text-zinc-400 hover:text-red-600 transition-colors"
+                    className="p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20 text-zinc-700 dark:text-zinc-400 hover:text-red-600 transition-colors"
                     title="Выйти"
                   >
                     <LogOut className="w-5 h-5" />
@@ -163,23 +163,23 @@ const ArticleCard = ({ article }: { article: Article }) => (
     <div className="p-6">
       <Link to={`/article/${article.id}`}>
         <div className="flex items-center gap-2 mb-3">
-          <span className="px-2.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs font-medium">
+          <span className="px-2.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-400 text-xs font-medium">
             {article.category.toLowerCase()}
           </span>
           {article.is_draft && (
-            <span className="px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 text-xs font-bold uppercase tracking-wider">
+            <span className="px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-xs font-bold uppercase tracking-wider">
               черновик
             </span>
           )}
-          <span className="text-zinc-400 dark:text-zinc-600 text-xs">•</span>
-          <span className="text-zinc-400 dark:text-zinc-500 text-xs flex items-center gap-1">
+          <span className="text-zinc-500 dark:text-zinc-600 text-xs">•</span>
+          <span className="text-zinc-500 dark:text-zinc-500 text-xs flex items-center gap-1">
             <Clock className="w-3 h-3" /> {article.read_time}
           </span>
         </div>
         <h3 className="text-xl font-bold mb-2 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors leading-tight dark:text-zinc-100">
           {article.title}
         </h3>
-        <p className="text-zinc-500 dark:text-zinc-400 text-sm line-clamp-2 mb-4">
+        <p className="text-zinc-600 dark:text-zinc-400 text-sm line-clamp-2 mb-4">
           {article.excerpt}
         </p>
       </Link>
@@ -192,7 +192,7 @@ const ArticleCard = ({ article }: { article: Article }) => (
             <User className="w-3 h-3 text-zinc-500 dark:text-zinc-400" />
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{article.author.toLowerCase()}</span>
+            <span className="text-xs font-medium text-zinc-700 dark:text-zinc-400">{article.author.toLowerCase()}</span>
             {article.author_badge && (
               <span className="px-1.5 py-0.5 rounded bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-[10px] font-bold uppercase tracking-wider">
                 {article.author_badge}
@@ -386,7 +386,7 @@ const CommentSection = ({ articleId, user }: { articleId: string, user: Supabase
                     >
                       {comment.profile?.username || 'аноним'}
                     </Link>
-                    <span className="text-[10px] text-zinc-400 dark:text-zinc-600 uppercase tracking-widest">
+                    <span className="text-[10px] text-zinc-500 dark:text-zinc-600 uppercase tracking-widest">
                       {new Date(comment.created_at).toLocaleDateString('ru-RU')}
                     </span>
                   </div>
@@ -405,7 +405,7 @@ const CommentSection = ({ articleId, user }: { articleId: string, user: Supabase
                     </button>
                   )}
                 </div>
-                <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                <p className="text-sm text-zinc-700 dark:text-zinc-400 leading-relaxed">
                   {comment.content}
                 </p>
               </div>
@@ -464,7 +464,7 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
 
   if (loading) return (
     <div className="flex justify-center py-20">
-      <Loader2 className="w-8 h-8 animate-spin text-zinc-400" />
+      <Loader2 className="w-8 h-8 animate-spin text-zinc-500" />
     </div>
   );
 
@@ -473,7 +473,7 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
       <h2 className="text-2xl font-bold mb-4">статья не найдена</h2>
       <button 
         onClick={() => navigate('/')}
-        className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline"
+        className="text-zinc-600 hover:text-zinc-900 dark:hover:text-zinc-100 underline"
       >
         вернуться на главную
       </button>
@@ -506,7 +506,7 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
       name: 'Twitter',
       icon: <Twitter className="w-4 h-4" />,
       url: `https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareTitle)}`,
-      color: 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-900 dark:hover:bg-white dark:hover:text-zinc-900 hover:text-white transition-all'
+      color: 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-400 hover:bg-zinc-900 dark:hover:bg-white dark:hover:text-zinc-900 hover:text-white transition-all'
     }
   ];
 
@@ -547,7 +547,7 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
       <div className="flex items-center justify-between mb-8">
         <button 
           onClick={() => navigate(-1)}
-          className="flex items-center gap-2 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors group"
+          className="flex items-center gap-2 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors group"
         >
           <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
           <span className="text-sm font-medium">назад</span>
@@ -557,7 +557,7 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
           <div className="flex items-center gap-3">
             <Link 
               to={`/edit/${article.id}`}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors text-sm font-bold"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors text-sm font-bold"
             >
               <Settings className="w-4 h-4" />
               редактировать
@@ -587,13 +587,13 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
                 <Trash2 className="w-6 h-6 text-red-600 dark:text-red-400" />
               </div>
               <h3 className="text-xl font-bold mb-2 dark:text-zinc-100">удалить статью?</h3>
-              <p className="text-zinc-500 dark:text-zinc-400 mb-8 text-sm leading-relaxed">
+              <p className="text-zinc-600 dark:text-zinc-400 mb-8 text-sm leading-relaxed">
                 вы уверены, что хотите безвозвратно удалить эту статью? это действие нельзя будет отменить.
               </p>
               <div className="flex gap-3">
                 <button 
                   onClick={() => setShowDeleteConfirm(false)}
-                  className="flex-1 px-6 py-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 text-sm font-bold hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all"
+                  className="flex-1 px-6 py-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-400 text-sm font-bold hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all"
                 >
                   отмена
                 </button>
@@ -786,7 +786,7 @@ const ProfileView = ({ user }: { user: SupabaseUser | null }) => {
 
   if (loading) return (
     <div className="flex justify-center py-20">
-      <Loader2 className="w-8 h-8 animate-spin text-zinc-400" />
+      <Loader2 className="w-8 h-8 animate-spin text-zinc-500" />
     </div>
   );
 
@@ -799,7 +799,7 @@ const ProfileView = ({ user }: { user: SupabaseUser | null }) => {
     >
       <button 
         onClick={() => navigate(-1)}
-        className="flex items-center gap-2 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 mb-12 transition-colors group"
+        className="flex items-center gap-2 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 mb-12 transition-colors group"
       >
         <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
         <span className="text-sm font-medium">назад</span>
@@ -810,7 +810,7 @@ const ProfileView = ({ user }: { user: SupabaseUser | null }) => {
           {profile?.avatar_url ? (
             <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
           ) : (
-            <User className="w-12 h-12 text-zinc-500 dark:text-zinc-400" />
+            <User className="w-12 h-12 text-zinc-600 dark:text-zinc-400" />
           )}
         </div>
         <div className="flex items-center gap-3 mb-2">
@@ -821,7 +821,7 @@ const ProfileView = ({ user }: { user: SupabaseUser | null }) => {
             </span>
           )}
         </div>
-        <p className="text-zinc-500 dark:text-zinc-400 max-w-lg">
+        <p className="text-zinc-600 dark:text-zinc-400 max-w-lg">
           {profile?.bio || "Этот пользователь не ставил себе описание("}
         </p>
       </div>
@@ -915,22 +915,22 @@ const SettingsView = ({ profile, onUpdate }: { profile: Profile | null, onUpdate
               {avatarUrl ? (
                 <img src={avatarUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
               ) : (
-                <User className="w-8 h-8 text-zinc-400" />
+                <User className="w-8 h-8 text-zinc-500" />
               )}
             </div>
             <div>
               <h4 className="font-bold dark:text-zinc-100 mb-1">фото профиля</h4>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">вставьте прямую ссылку на изображение</p>
+              <p className="text-xs text-zinc-600 dark:text-zinc-400">вставьте прямую ссылку на изображение</p>
             </div>
           </div>
 
           <div className="space-y-6">
             <div>
-              <label className="block text-xs font-bold text-zinc-400 dark:text-zinc-600 uppercase tracking-widest mb-3 ml-1">
+              <label className="block text-xs font-bold text-zinc-500 dark:text-zinc-600 uppercase tracking-widest mb-3 ml-1">
                 имя пользователя
               </label>
               <div className="relative">
-                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
                   type="text"
                   value={username}
@@ -943,11 +943,11 @@ const SettingsView = ({ profile, onUpdate }: { profile: Profile | null, onUpdate
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-zinc-400 dark:text-zinc-600 uppercase tracking-widest mb-3 ml-1">
+              <label className="block text-xs font-bold text-zinc-500 dark:text-zinc-600 uppercase tracking-widest mb-3 ml-1">
                 ссылка на аватар
               </label>
               <div className="relative">
-                <Camera className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                <Camera className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
                   type="url"
                   value={avatarUrl}
@@ -1102,14 +1102,14 @@ const HomeView = () => {
           <Zap className="w-3 h-3 fill-current" /> новые технологии
         </motion.div>
         <h2 className="text-4xl font-extrabold mb-4 tracking-tight dark:text-zinc-100">блог о свободе интернета</h2>
-        <p className="text-zinc-500 dark:text-zinc-400 text-lg mb-8">
+        <p className="text-zinc-600 dark:text-zinc-400 text-lg mb-8">
           актуальные новости, подробные инструкции и лучшие практики по настройке vless, vpn и прокси.
         </p>
 
         <div className="relative max-w-xl mx-auto">
           <div className="flex gap-2">
             <div className="relative flex-1">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
               <input
                 type="text"
                 placeholder="поиск по статьям или авторам..."
@@ -1123,7 +1123,7 @@ const HomeView = () => {
               className={`px-4 py-3 rounded-2xl border transition-all flex items-center gap-2 text-sm font-medium ${
                 showFilters || selectedCategory !== 'все' || selectedAuthor !== 'все' || dateRange !== 'все'
                   ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 border-zinc-900 dark:border-zinc-100'
-                  : 'bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:border-zinc-400'
+                  : 'bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:border-zinc-400'
               }`}
             >
               <Filter className="w-4 h-4" />
@@ -1141,7 +1141,7 @@ const HomeView = () => {
               >
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
                       <Layout className="w-3 h-3" /> категория
                     </label>
                     <div className="relative">
@@ -1154,12 +1154,12 @@ const HomeView = () => {
                           <option key={cat} value={cat}>{cat}</option>
                         ))}
                       </select>
-                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
                       <User className="w-3 h-3" /> автор
                     </label>
                     <div className="relative">
@@ -1173,12 +1173,12 @@ const HomeView = () => {
                           <option key={author} value={author}>{author}</option>
                         ))}
                       </select>
-                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
                       <Calendar className="w-3 h-3" /> дата
                     </label>
                     <div className="relative">
@@ -1192,7 +1192,7 @@ const HomeView = () => {
                         <option value="неделя">за неделю</option>
                         <option value="месяц">за месяц</option>
                       </select>
-                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />
                     </div>
                   </div>
                 </div>
@@ -1354,7 +1354,7 @@ const ArticleEditor = ({ user, profile }: { user: SupabaseUser | null, profile: 
   if (initialLoading) {
     return (
       <div className="flex justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-zinc-400" />
+        <Loader2 className="w-8 h-8 animate-spin text-zinc-500" />
       </div>
     );
   }
@@ -1367,7 +1367,7 @@ const ArticleEditor = ({ user, profile }: { user: SupabaseUser | null, profile: 
     >
       <button 
         onClick={() => navigate(-1)}
-        className="flex items-center gap-2 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 mb-8 transition-colors group"
+        className="flex items-center gap-2 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 mb-8 transition-colors group"
       >
         <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
         <span className="text-sm font-medium">назад</span>
@@ -1397,11 +1397,11 @@ const ArticleEditor = ({ user, profile }: { user: SupabaseUser | null, profile: 
       <form onSubmit={handleSubmit} className="space-y-8">
         <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm space-y-6">
           <div>
-            <label className="block text-xs font-bold text-zinc-400 dark:text-zinc-600 uppercase tracking-widest mb-3 ml-1">
+            <label className="block text-xs font-bold text-zinc-500 dark:text-zinc-600 uppercase tracking-widest mb-3 ml-1">
               заголовок
             </label>
             <div className="relative">
-              <TypeIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+              <TypeIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
               <input
                 type="text"
                 value={title}
@@ -1415,11 +1415,11 @@ const ArticleEditor = ({ user, profile }: { user: SupabaseUser | null, profile: 
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-xs font-bold text-zinc-400 dark:text-zinc-600 uppercase tracking-widest mb-3 ml-1">
+              <label className="block text-xs font-bold text-zinc-500 dark:text-zinc-600 uppercase tracking-widest mb-3 ml-1">
                 категория
               </label>
               <div className="relative">
-                <Layout className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                <Layout className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <select
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
@@ -1434,11 +1434,11 @@ const ArticleEditor = ({ user, profile }: { user: SupabaseUser | null, profile: 
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-zinc-400 dark:text-zinc-600 uppercase tracking-widest mb-3 ml-1">
+              <label className="block text-xs font-bold text-zinc-500 dark:text-zinc-600 uppercase tracking-widest mb-3 ml-1">
                 ссылка на обложку
               </label>
               <div className="relative">
-                <ImageIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                <ImageIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
                   type="url"
                   value={image}
@@ -1774,7 +1774,7 @@ const AdminView = () => {
             <span className="px-2 py-0.5 rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-[10px] font-black uppercase tracking-widest">System</span>
             <h2 className="text-4xl font-black dark:text-zinc-100 tracking-tighter">АДМИН-ПАНЕЛЬ</h2>
           </div>
-          <p className="text-zinc-500 dark:text-zinc-400 text-sm font-medium">Управление контентом, пользователями и безопасностью</p>
+          <p className="text-zinc-600 dark:text-zinc-400 text-sm font-medium">Управление контентом, пользователями и безопасностью</p>
         </div>
         <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
           <AnimatePresence>
@@ -1792,7 +1792,7 @@ const AdminView = () => {
             )}
           </AnimatePresence>
           <div className="relative flex-1 lg:w-64">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
             <input
               type="text"
               value={searchQuery}
@@ -1804,7 +1804,7 @@ const AdminView = () => {
           <button 
             onClick={fetchAllData}
             disabled={loading}
-            className="px-6 py-3 rounded-2xl bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all disabled:opacity-50 flex items-center gap-2 font-bold text-sm"
+            className="px-6 py-3 rounded-2xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all disabled:opacity-50 flex items-center gap-2 font-bold text-sm"
           >
             <Zap className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Обновить данные
@@ -1834,7 +1834,7 @@ const AdminView = () => {
             className={`flex items-center gap-2 px-6 py-2.5 rounded-2xl text-sm font-bold transition-all ${
               activeTab === tab.id 
                 ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-md ring-1 ring-zinc-200 dark:ring-zinc-700' 
-                : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
+                : 'text-zinc-600 hover:text-zinc-700 dark:hover:text-zinc-300'
             }`}
           >
             <tab.icon className="w-4 h-4" />
@@ -1856,14 +1856,14 @@ const AdminView = () => {
                   <stat.icon className="w-6 h-6" />
                 </div>
                 <div className="text-4xl font-black dark:text-zinc-100 mb-1">{stat.value}</div>
-                <div className="text-sm font-bold text-zinc-400 uppercase tracking-widest">{stat.label}</div>
+                <div className="text-sm font-bold text-zinc-500 uppercase tracking-widest">{stat.label}</div>
               </div>
             ))}
           </div>
 
           <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
             <h3 className="text-xl font-black mb-6 dark:text-zinc-100 tracking-tight flex items-center gap-2">
-              <Clock className="w-5 h-5 text-zinc-400" /> Последние действия
+              <Clock className="w-5 h-5 text-zinc-500" /> Последние действия
             </h3>
             <div className="space-y-4">
               {articles.slice(0, 3).map(a => (
@@ -1872,7 +1872,7 @@ const AdminView = () => {
                     <div className="w-2 h-2 rounded-full bg-blue-500" />
                     <span className="text-sm dark:text-zinc-300 font-medium">Новая статья: <span className="font-bold text-zinc-900 dark:text-zinc-100">{a.title}</span></span>
                   </div>
-                  <span className="text-xs text-zinc-400">{new Date(a.created_at || '').toLocaleDateString()}</span>
+                  <span className="text-xs text-zinc-500">{new Date(a.created_at || '').toLocaleDateString()}</span>
                 </div>
               ))}
               {comments.slice(0, 3).map(c => (
@@ -1881,7 +1881,7 @@ const AdminView = () => {
                     <div className="w-2 h-2 rounded-full bg-amber-500" />
                     <span className="text-sm dark:text-zinc-300 font-medium">Новый комментарий от <span className="font-bold text-zinc-900 dark:text-zinc-100">{c.profiles?.username || c.author_name || 'Аноним'}</span></span>
                   </div>
-                  <span className="text-xs text-zinc-400">{new Date(c.created_at).toLocaleDateString()}</span>
+                  <span className="text-xs text-zinc-500">{new Date(c.created_at).toLocaleDateString()}</span>
                 </div>
               ))}
             </div>
@@ -1895,10 +1895,10 @@ const AdminView = () => {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/20">
-                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest">Статья</th>
-                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest">Автор</th>
-                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest">Статус</th>
-                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest text-right">Действия</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-500 uppercase tracking-widest">Статья</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-500 uppercase tracking-widest">Автор</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-500 uppercase tracking-widest">Статус</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-500 uppercase tracking-widest text-right">Действия</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -1930,9 +1930,9 @@ const AdminView = () => {
                                 ))}
                               </select>
                             ) : (
-                              <span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-500 text-[10px] font-bold uppercase tracking-widest">{article.category}</span>
+                              <span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 text-[10px] font-bold uppercase tracking-widest">{article.category}</span>
                             )}
-                            <span className="text-[10px] text-zinc-400 font-medium flex items-center gap-1">
+                            <span className="text-[10px] text-zinc-500 font-medium flex items-center gap-1">
                               <Clock className="w-3 h-3" /> {article.read_time}
                             </span>
                           </div>
@@ -1942,7 +1942,7 @@ const AdminView = () => {
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center overflow-hidden">
-                          <User className="w-3 h-3 text-zinc-400" />
+                          <User className="w-3 h-3 text-zinc-500" />
                         </div>
                         <span className="text-sm dark:text-zinc-300 font-bold">{article.author}</span>
                       </div>
@@ -1968,7 +1968,7 @@ const AdminView = () => {
                             </button>
                             <button 
                               onClick={() => setEditingArticleId(null)}
-                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-400"
                             >
                               <X className="w-4 h-4" />
                             </button>
@@ -1977,35 +1977,35 @@ const AdminView = () => {
                           <>
                             <button 
                               onClick={() => toggleDraft(article)}
-                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-400"
                               title={article.is_draft ? "Опубликовать" : "В черновики"}
                             >
                               {article.is_draft ? <ShieldCheck className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                             </button>
                             <button 
                               onClick={() => startEditing(article)}
-                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-400"
                               title="Быстрое редактирование"
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
                             <button 
                               onClick={() => navigate(`/edit/${article.id}`)}
-                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-400"
                               title="Полное редактирование"
                             >
                               <FileEdit className="w-4 h-4" />
                             </button>
                             <Link 
                               to={`/article/${article.id}`}
-                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-400"
                               title="Просмотр"
                             >
                               <ExternalLink className="w-4 h-4" />
                             </Link>
                             <button 
                               onClick={() => handleDeleteArticle(article.id)}
-                              className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-600 dark:text-zinc-400 hover:text-red-600"
+                              className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-700 dark:text-zinc-400 hover:text-red-600"
                               title="Удалить"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -2028,10 +2028,10 @@ const AdminView = () => {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/20">
-                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest">Профиль</th>
-                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest">ID</th>
-                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest">Регистрация</th>
-                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest text-right">Действия</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-500 uppercase tracking-widest">Профиль</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-500 uppercase tracking-widest">ID</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-500 uppercase tracking-widest">Регистрация</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-500 uppercase tracking-widest text-right">Действия</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -2043,7 +2043,7 @@ const AdminView = () => {
                           {p.avatar_url ? (
                             <img src={p.avatar_url} alt="" className="w-full h-full object-cover" />
                           ) : (
-                            <User className="w-6 h-6 text-zinc-400" />
+                            <User className="w-6 h-6 text-zinc-500" />
                           )}
                         </div>
                         <div>
@@ -2069,7 +2069,7 @@ const AdminView = () => {
                               <div className="text-[10px] text-zinc-500 line-clamp-1 max-w-[200px]">{p.bio || "Нет описания"}</div>
                             </>
                           )}
-                          <div className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mt-1">User</div>
+                          <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-1">User</div>
                         </div>
                       </div>
                     </td>
@@ -2089,7 +2089,7 @@ const AdminView = () => {
                             </button>
                             <button 
                               onClick={() => setEditingProfileId(null)}
-                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-400"
                             >
                               <X className="w-4 h-4" />
                             </button>
@@ -2098,21 +2098,21 @@ const AdminView = () => {
                           <>
                             <button 
                               onClick={() => startEditingProfile(p)}
-                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-400"
                               title="Редактировать"
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
                             <Link 
                               to={`/profile/${p.id}`}
-                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-400"
                               title="Просмотр"
                             >
                               <ExternalLink className="w-4 h-4" />
                             </Link>
                             <button 
                               onClick={() => handleDeleteProfile(p.id)}
-                              className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-600 dark:text-zinc-400 hover:text-red-600"
+                              className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-700 dark:text-zinc-400 hover:text-red-600"
                               title="Удалить"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -2135,10 +2135,10 @@ const AdminView = () => {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/20">
-                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest">Комментарий</th>
-                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest">Статья</th>
-                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest">Автор</th>
-                  <th className="px-6 py-5 text-xs font-bold text-zinc-400 uppercase tracking-widest text-right">Действия</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-500 uppercase tracking-widest">Комментарий</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-500 uppercase tracking-widest">Статья</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-500 uppercase tracking-widest">Автор</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-500 uppercase tracking-widest text-right">Действия</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -2152,12 +2152,12 @@ const AdminView = () => {
                             onChange={(e) => setEditCommentContent(e.target.value)}
                             className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 dark:text-zinc-100 w-full min-h-[80px] resize-none"
                           />
-                          <div className="text-[10px] text-zinc-400">{new Date(c.created_at).toLocaleString()}</div>
+                          <div className="text-[10px] text-zinc-500">{new Date(c.created_at).toLocaleString()}</div>
                         </div>
                       ) : (
                         <>
                           <div className="text-sm dark:text-zinc-100 line-clamp-2 max-w-md font-medium leading-relaxed">{c.content}</div>
-                          <div className="text-[10px] text-zinc-400 mt-1">{new Date(c.created_at).toLocaleString()}</div>
+                          <div className="text-[10px] text-zinc-500 mt-1">{new Date(c.created_at).toLocaleString()}</div>
                         </>
                       )}
                     </td>
@@ -2183,7 +2183,7 @@ const AdminView = () => {
                             </button>
                             <button 
                               onClick={() => setEditingCommentId(null)}
-                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-400"
                             >
                               <X className="w-4 h-4" />
                             </button>
@@ -2192,14 +2192,14 @@ const AdminView = () => {
                           <>
                             <button 
                               onClick={() => startEditingComment(c)}
-                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400"
+                              className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-400"
                               title="Редактировать"
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
                             <button 
                               onClick={() => handleDeleteComment(c.id)}
-                              className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-600 dark:text-zinc-400 hover:text-red-600"
+                              className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-700 dark:text-zinc-400 hover:text-red-600"
                               title="Удалить"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -2220,15 +2220,22 @@ const AdminView = () => {
 };
 
 export default function App() {
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(() => {
+    const saved = localStorage.getItem('theme');
+    return saved ? saved === 'dark' : true;
+  });
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
 
   useEffect(() => {
     if (isDark) {
+      document.documentElement.classList.add('dark');
       document.body.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
     } else {
+      document.documentElement.classList.remove('dark');
       document.body.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
     }
   }, [isDark]);
 
@@ -2272,7 +2279,7 @@ export default function App() {
 
   return (
     <Router>
-      <div className="min-h-screen transition-colors duration-300 bg-zinc-50 dark:bg-zinc-950 selection:bg-zinc-900 selection:text-white dark:selection:bg-zinc-100 dark:selection:text-zinc-900">
+      <div className={`min-h-screen transition-colors duration-300 bg-zinc-50 dark:bg-zinc-950 selection:bg-zinc-900 selection:text-white dark:selection:bg-zinc-100 dark:selection:text-zinc-900 ${isDark ? 'dark' : ''}`}>
         {!isSupabaseConfigured && (
           <div className="bg-amber-500/10 border-b border-amber-500/20 py-2 px-4">
             <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4">

@@ -74,15 +74,15 @@ export const Auth = () => {
           </p>
           <div className="bg-white dark:bg-zinc-900 rounded-2xl p-6 text-left space-y-4 border border-amber-100 dark:border-amber-900/20 shadow-sm">
             <div className="space-y-1">
-              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">шаг 1</p>
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">шаг 1</p>
               <p className="text-sm text-zinc-600 dark:text-zinc-300">Перейдите в настройки вашего проекта Supabase (Project Settings {"->"} API).</p>
             </div>
             <div className="space-y-1">
-              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">шаг 2</p>
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">шаг 2</p>
               <p className="text-sm text-zinc-600 dark:text-zinc-300">Скопируйте Project URL и anon public key.</p>
             </div>
             <div className="space-y-1">
-              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">шаг 3</p>
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">шаг 3</p>
               <p className="text-sm text-zinc-600 dark:text-zinc-300">В этом редакторе откройте Settings {"->"} Secrets и добавьте их.</p>
             </div>
             <div className="pt-2">
@@ -133,11 +133,11 @@ export const Auth = () => {
                 className="space-y-4"
               >
                 <div>
-                  <label className="block text-xs font-bold text-zinc-400 dark:text-zinc-600 uppercase tracking-widest mb-2 ml-1">
+                  <label className="block text-xs font-bold text-zinc-500 dark:text-zinc-600 uppercase tracking-widest mb-2 ml-1">
                     email
                   </label>
                   <div className="relative">
-                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                     <input
                       type="email"
                       value={email}
@@ -154,11 +154,11 @@ export const Auth = () => {
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
                   >
-                    <label className="block text-xs font-bold text-zinc-400 dark:text-zinc-600 uppercase tracking-widest mb-2 ml-1">
+                    <label className="block text-xs font-bold text-zinc-500 dark:text-zinc-600 uppercase tracking-widest mb-2 ml-1">
                       имя пользователя
                     </label>
                     <div className="relative">
-                      <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                      <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                       <input
                         type="text"
                         value={username}
@@ -172,11 +172,11 @@ export const Auth = () => {
                 )}
 
                 <div>
-                  <label className="block text-xs font-bold text-zinc-400 dark:text-zinc-600 uppercase tracking-widest mb-2 ml-1">
+                  <label className="block text-xs font-bold text-zinc-500 dark:text-zinc-600 uppercase tracking-widest mb-2 ml-1">
                     пароль
                   </label>
                   <div className="relative">
-                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                     <input
                       type="password"
                       value={password}
