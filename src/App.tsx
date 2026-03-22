@@ -822,7 +822,7 @@ const ProfileView = ({ user }: { user: SupabaseUser | null }) => {
           )}
         </div>
         <p className="text-zinc-500 dark:text-zinc-400 max-w-lg">
-          технический эксперт и автор блога vlessfree. делится опытом настройки безопасных соединений и обхода блокировок.
+          {profile?.bio || "Этот пользователь не ставил себе описание("}
         </p>
       </div>
 
@@ -842,6 +842,7 @@ const SettingsView = ({ profile, onUpdate }: { profile: Profile | null, onUpdate
   const navigate = useNavigate();
   const [username, setUsername] = useState(profile?.username || '');
   const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url || '');
+  const [bio, setBio] = useState(profile?.bio || '');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -850,6 +851,7 @@ const SettingsView = ({ profile, onUpdate }: { profile: Profile | null, onUpdate
     if (profile) {
       setUsername(profile.username);
       setAvatarUrl(profile.avatar_url || '');
+      setBio(profile.bio || '');
     }
   }, [profile]);
 
@@ -866,6 +868,7 @@ const SettingsView = ({ profile, onUpdate }: { profile: Profile | null, onUpdate
       .update({
         username: username.startsWith('@') ? username : `@${username}`,
         avatar_url: avatarUrl,
+        bio: bio,
       })
       .eq('id', profile.id);
 
@@ -951,6 +954,21 @@ const SettingsView = ({ profile, onUpdate }: { profile: Profile | null, onUpdate
                   onChange={(e) => setAvatarUrl(e.target.value)}
                   className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-11 py-3 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 transition-colors dark:text-zinc-100"
                   placeholder="https://example.com/avatar.jpg"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-zinc-400 dark:text-zinc-600 uppercase tracking-widest mb-3 ml-1">
+                о себе
+              </label>
+              <div className="relative">
+                <FileText className="absolute left-4 top-4 w-4 h-4 text-zinc-400" />
+                <textarea
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-11 py-3 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 transition-colors dark:text-zinc-100 min-h-[100px] resize-none"
+                  placeholder="расскажите о себе..."
                 />
               </div>
             </div>
@@ -1504,6 +1522,7 @@ const AdminView = () => {
   const [editCategory, setEditCategory] = useState('');
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [editUsername, setEditUsername] = useState('');
+  const [editBio, setEditBio] = useState('');
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editCommentContent, setEditCommentContent] = useState('');
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
@@ -1646,12 +1665,13 @@ const AdminView = () => {
     const { error } = await supabase
       .from('profiles')
       .update({ 
-        username: editUsername
+        username: editUsername,
+        bio: editBio
       })
       .eq('id', id);
     
     if (!error) {
-      setProfiles(profiles.map(p => p.id === id ? { ...p, username: editUsername } : p));
+      setProfiles(profiles.map(p => p.id === id ? { ...p, username: editUsername, bio: editBio } : p));
       setEditingProfileId(null);
       setToast({ message: 'Профиль обновлен!', type: 'success' });
     } else {
@@ -1662,6 +1682,7 @@ const AdminView = () => {
   const startEditingProfile = (profile: Profile) => {
     setEditingProfileId(profile.id);
     setEditUsername(profile.username);
+    setEditBio(profile.bio || '');
   };
 
   const handleApplyCommentChanges = async (id: string) => {
@@ -2027,16 +2048,28 @@ const AdminView = () => {
                         </div>
                         <div>
                           {editingProfileId === p.id ? (
-                            <input
-                              type="text"
-                              value={editUsername}
-                              onChange={(e) => setEditUsername(e.target.value)}
-                              className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 dark:text-zinc-100 mb-1"
-                            />
+                            <div className="flex flex-col gap-2">
+                              <input
+                                type="text"
+                                value={editUsername}
+                                onChange={(e) => setEditUsername(e.target.value)}
+                                className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 dark:text-zinc-100"
+                                placeholder="Username"
+                              />
+                              <textarea
+                                value={editBio}
+                                onChange={(e) => setEditBio(e.target.value)}
+                                className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 dark:text-zinc-100 min-h-[60px] resize-none"
+                                placeholder="Bio"
+                              />
+                            </div>
                           ) : (
-                            <div className="font-bold text-sm dark:text-zinc-100">{p.username}</div>
+                            <>
+                              <div className="font-bold text-sm dark:text-zinc-100">{p.username}</div>
+                              <div className="text-[10px] text-zinc-500 line-clamp-1 max-w-[200px]">{p.bio || "Нет описания"}</div>
+                            </>
                           )}
-                          <div className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">User</div>
+                          <div className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mt-1">User</div>
                         </div>
                       </div>
                     </td>
