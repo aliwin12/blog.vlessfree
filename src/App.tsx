@@ -1525,7 +1525,7 @@ const AdminView = () => {
       const [articlesRes, profilesRes, commentsRes] = await Promise.all([
         supabase.from('articles').select('*').order('created_at', { ascending: false }),
         supabase.from('profiles').select('*').order('created_at', { ascending: false }),
-        supabase.from('comments').select('*, articles(title), profiles(username)').order('created_at', { ascending: false })
+        supabase.from('comments').select('*').order('created_at', { ascending: false })
       ]);
 
       if (articlesRes.error) throw articlesRes.error;
@@ -1534,7 +1534,20 @@ const AdminView = () => {
 
       if (articlesRes.data) setArticles(articlesRes.data);
       if (profilesRes.data) setProfiles(profilesRes.data);
-      if (commentsRes.data) setComments(commentsRes.data);
+      
+      if (commentsRes.data) {
+        // Join comments with articles and profiles in memory
+        const joinedComments = commentsRes.data.map(comment => {
+          const article = articlesRes.data?.find(a => a.id === comment.article_id);
+          const profile = profilesRes.data?.find(p => p.id === comment.user_id);
+          return {
+            ...comment,
+            articles: article ? { title: article.title } : null,
+            profiles: profile ? { username: profile.username } : null
+          };
+        });
+        setComments(joinedComments);
+      }
       
       setToast({ message: 'Данные обновлены!', type: 'success' });
     } catch (err: any) {
