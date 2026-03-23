@@ -13,6 +13,10 @@ export interface Article {
   edit_count?: number;
   is_draft?: boolean;
   created_at?: string;
+  likes_count?: number;
+  dislikes_count?: number;
+  views_count?: number;
+  author_is_verified?: boolean;
 }
 
 export interface Profile {
@@ -20,6 +24,25 @@ export interface Profile {
   username: string;
   avatar_url?: string;
   bio?: string;
+  created_at: string;
+  is_banned?: boolean;
+  followers_count?: number;
+  following_count?: number;
+  badge?: string;
+  is_verified?: boolean;
+}
+
+export interface Follow {
+  follower_id: string;
+  following_id: string;
+  created_at: string;
+}
+
+export interface ArticleReaction {
+  id: string;
+  article_id: string;
+  user_id: string;
+  type: 'like' | 'dislike';
   created_at: string;
 }
 
@@ -44,30 +67,7 @@ export const MOCK_ARTICLES: Article[] = [
     category: 'Новости',
     read_time: '1 мин',
     image: 'https://i.ibb.co/xSrJq5ZZ/2026-03-17-214505.png',
-    created_at: '2026-03-17T12:00:00Z'
-  },
-  {
-    id: '2',
-    title: 'Как настроить VLESS на iOS',
-    excerpt: 'Подробная инструкция по настройке протокола VLESS с использованием клиента FoXray.',
-    content: '# Инструкция по VLESS\n\n1. Скачайте FoXray из App Store...\n2. Скопируйте ссылку...',
-    date: '20 Марта 2026',
-    author: 'aliwin',
-    category: 'Инструкции',
-    read_time: '5 мин',
-    image: 'https://picsum.photos/seed/ios/800/600',
-    created_at: '2026-03-20T10:00:00Z'
-  },
-  {
-    id: '3',
-    title: 'Обзор лучших VPN протоколов 2026',
-    excerpt: 'Сравнение VLESS, Reality, Shadowsocks и WireGuard в современных реалиях.',
-    content: 'В 2026 году выбор протокола стал критически важным...',
-    date: '21 Марта 2026',
-    author: 'tech_expert',
-    category: 'Обзоры',
-    read_time: '8 мин',
-    image: 'https://picsum.photos/seed/vpn/800/600',
-    created_at: '2026-03-21T15:00:00Z'
+    created_at: '2026-03-17T12:00:00Z',
+    views_count: 0
   }
 ];

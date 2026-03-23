@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { motion, AnimatePresence } from 'motion/react';
-import { Mail, Lock, User, ArrowRight, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, Loader2, AlertCircle, CheckCircle2, Shield } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 export const Auth = () => {
   const [loading, setLoading] = useState(false);
@@ -45,11 +46,24 @@ export const Auth = () => {
         
         setSuccess('Проверьте вашу почту для подтверждения регистрации!');
       } else {
-        const { error: signInError } = await supabase.auth.signInWithPassword({
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
         if (signInError) throw signInError;
+
+        if (signInData.user) {
+          const { data: pData } = await supabase
+            .from('profiles')
+            .select('is_banned')
+            .eq('id', signInData.user.id)
+            .single();
+          
+          if (pData?.is_banned) {
+            await supabase.auth.signOut();
+            throw new Error('Ваш аккаунт заблокирован. Доступ запрещен.');
+          }
+        }
       }
     } catch (err: any) {
       console.error('Auth error:', err);
@@ -209,6 +223,15 @@ export const Auth = () => {
                     </>
                   )}
                 </button>
+
+                {isSignUp && (
+                  <p className="text-[10px] text-zinc-500 dark:text-zinc-600 text-center px-4 leading-relaxed">
+                    Регистрируясь, вы соглашаетесь с{' '}
+                    <Link to="/terms" className="text-zinc-900 dark:text-zinc-100 font-bold hover:underline">
+                      условиями использования
+                    </Link>
+                  </p>
+                )}
               </motion.div>
             )}
           </AnimatePresence>

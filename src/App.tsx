@@ -43,7 +43,13 @@ import {
   Users,
   MessageCircle,
   Edit2,
-  FileEdit
+  FileEdit,
+  ThumbsUp,
+  ThumbsDown,
+  UserPlus,
+  UserMinus,
+  Ban,
+  AlertTriangle
 } from 'lucide-react';
 import { 
   BrowserRouter as Router, 
@@ -175,6 +181,10 @@ const ArticleCard = ({ article }: { article: Article }) => (
           <span className="text-zinc-500 dark:text-zinc-500 text-xs flex items-center gap-1">
             <Clock className="w-3 h-3" /> {article.read_time}
           </span>
+          <span className="text-zinc-500 dark:text-zinc-600 text-xs">•</span>
+          <span className="text-zinc-500 dark:text-zinc-500 text-xs flex items-center gap-1">
+            <Eye className="w-3 h-3" /> {article.views_count || 0}
+          </span>
         </div>
         <h3 className="text-xl font-bold mb-2 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors leading-tight dark:text-zinc-100">
           {article.title}
@@ -193,6 +203,9 @@ const ArticleCard = ({ article }: { article: Article }) => (
           </div>
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-medium text-zinc-700 dark:text-zinc-400">{article.author.toLowerCase()}</span>
+            {article.author_is_verified && (
+              <ShieldCheck className="w-3 h-3 text-blue-500 fill-blue-500/10" />
+            )}
             {article.author_badge && (
               <span className="px-1.5 py-0.5 rounded bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-[10px] font-bold uppercase tracking-wider">
                 {article.author_badge}
@@ -226,9 +239,10 @@ const CommentSection = ({ articleId, user }: { articleId: string, user: Supabase
         .from('comments')
         .select(`
           *,
-          profile:profiles(*)
+          profile:profiles!inner(*)
         `)
         .eq('article_id', articleId)
+        .eq('profile.is_banned', false)
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -257,6 +271,8 @@ const CommentSection = ({ articleId, user }: { articleId: string, user: Supabase
           .eq('id', payload.new.user_id)
           .single();
         
+        if (profileData?.is_banned) return; // Don't add if banned
+
         const commentWithProfile = { ...payload.new, profile: profileData } as Comment;
         setComments(prev => {
           if (prev.some(c => c.id === commentWithProfile.id)) return prev;
@@ -382,9 +398,17 @@ const CommentSection = ({ articleId, user }: { articleId: string, user: Supabase
                   <div className="flex items-center gap-2">
                     <Link 
                       to={`/profile/${comment.profile?.id || comment.user_id}`}
-                      className="text-sm font-bold dark:text-zinc-100 hover:underline"
+                      className="text-sm font-bold dark:text-zinc-100 hover:underline flex items-center gap-1.5"
                     >
                       {comment.profile?.username || 'аноним'}
+                      {comment.profile?.is_verified && (
+                        <ShieldCheck className="w-3 h-3 text-blue-500 fill-blue-500/10" />
+                      )}
+                      {comment.profile?.badge && (
+                        <span className="px-1 py-0.5 rounded bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-[8px] font-bold uppercase tracking-wider">
+                          {comment.profile.badge}
+                        </span>
+                      )}
                     </Link>
                     <span className="text-[10px] text-zinc-500 dark:text-zinc-600 uppercase tracking-widest">
                       {new Date(comment.created_at).toLocaleDateString('ru-RU')}
@@ -427,15 +451,28 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
   const [copied, setCopied] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [likesCount, setLikesCount] = useState(0);
+  const [dislikesCount, setDislikesCount] = useState(0);
+  const [viewsCount, setViewsCount] = useState(0);
+  const [userReaction, setUserReaction] = useState<'like' | 'dislike' | null>(null);
+  const [reactionLoading, setReactionLoading] = useState(false);
+  const [isFollowingAuthor, setIsFollowingAuthor] = useState(false);
+  const [followLoading, setFollowLoading] = useState(false);
+  const [authorProfile, setAuthorProfile] = useState<Profile | null>(null);
 
   useEffect(() => {
     const fetchArticle = async () => {
       if (!id) return;
 
       // First check mock articles
-      const mock = MOCK_ARTICLES.find(a => a.id === id);
-      if (mock) {
-        setArticle(mock);
+      const mockIndex = MOCK_ARTICLES.findIndex(a => a.id === id);
+      if (mockIndex !== -1) {
+        const mock = MOCK_ARTICLES[mockIndex];
+        mock.views_count = (mock.views_count || 0) + 1;
+        setArticle({ ...mock });
+        setLikesCount(mock.likes_count || 0);
+        setDislikesCount(mock.dislikes_count || 0);
+        setViewsCount(mock.views_count);
         setLoading(false);
         return;
       }
@@ -453,6 +490,66 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
             setArticle(null);
           } else {
             setArticle(data);
+            setLikesCount(data.likes_count || 0);
+            setDislikesCount(data.dislikes_count || 0);
+            setViewsCount((data.views_count || 0) + 1);
+            
+            // Increment views count in database
+            if (data.views_count !== undefined) {
+              supabase
+                .from('articles')
+                .update({ views_count: (data.views_count || 0) + 1 })
+                .eq('id', id)
+                .then(({ error }) => {
+                  if (error) {
+                    console.error('Error incrementing views:', error);
+                    // If column is missing, we don't want to spam console in production
+                    // but here it helps user diagnose.
+                  }
+                });
+            }
+            
+            // Fetch author profile
+            if (data.author_id) {
+              supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', data.author_id)
+                .single()
+                .then(({ data: pData }) => {
+                  if (pData) {
+                    setAuthorProfile(pData);
+                    if (pData.is_banned) {
+                      setArticle(null);
+                    }
+                  }
+                });
+            }
+            
+            // Fetch user reaction and follow status
+            if (user) {
+              const [reactionRes, followRes] = await Promise.all([
+                supabase
+                  .from('article_reactions')
+                  .select('type')
+                  .eq('article_id', id)
+                  .eq('user_id', user.id)
+                  .maybeSingle(),
+                data.author_id ? supabase
+                  .from('follows')
+                  .select('*')
+                  .eq('follower_id', user.id)
+                  .eq('following_id', data.author_id)
+                  .maybeSingle() : Promise.resolve({ data: null })
+              ]);
+              
+              if (reactionRes.data) {
+                setUserReaction(reactionRes.data.type as 'like' | 'dislike');
+              }
+              if (followRes.data) {
+                setIsFollowingAuthor(true);
+              }
+            }
           }
         }
       }
@@ -460,7 +557,97 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
     };
 
     fetchArticle();
-  }, [id]);
+  }, [id, user]);
+
+  const handleFollowAuthor = async () => {
+    if (!user || !article || !article.author_id || !isSupabaseConfigured || followLoading || user.id === article.author_id) return;
+
+    setFollowLoading(true);
+    try {
+      if (isFollowingAuthor) {
+        const { error } = await supabase
+          .from('follows')
+          .delete()
+          .eq('follower_id', user.id)
+          .eq('following_id', article.author_id);
+        
+        if (error) throw error;
+        setIsFollowingAuthor(false);
+      } else {
+        const { error } = await supabase
+          .from('follows')
+          .insert([{ follower_id: user.id, following_id: article.author_id }]);
+        
+        if (error) throw error;
+        setIsFollowingAuthor(true);
+      }
+    } catch (err: any) {
+      console.error('Error handling follow in article detail:', err);
+    } finally {
+      setFollowLoading(false);
+    }
+  };
+
+  const handleReaction = async (type: 'like' | 'dislike') => {
+    if (!user || !id || !isSupabaseConfigured || reactionLoading) return;
+
+    setReactionLoading(true);
+    try {
+      if (userReaction === type) {
+        // Remove reaction
+        const { error } = await supabase
+          .from('article_reactions')
+          .delete()
+          .eq('article_id', id)
+          .eq('user_id', user.id);
+        
+        if (error) throw error;
+        
+        if (type === 'like') setLikesCount(prev => Math.max(0, prev - 1));
+        else setDislikesCount(prev => Math.max(0, prev - 1));
+        setUserReaction(null);
+      } else {
+        // Add or change reaction
+        const { error } = await supabase
+          .from('article_reactions')
+          .upsert({
+            article_id: id,
+            user_id: user.id,
+            type: type
+          }, { onConflict: 'article_id,user_id' });
+        
+        if (error) throw error;
+
+        if (userReaction === null) {
+          if (type === 'like') setLikesCount(prev => prev + 1);
+          else setDislikesCount(prev => prev + 1);
+        } else {
+          // Changed from like to dislike or vice versa
+          if (type === 'like') {
+            setLikesCount(prev => prev + 1);
+            setDislikesCount(prev => Math.max(0, prev - 1));
+          } else {
+            setDislikesCount(prev => prev + 1);
+            setLikesCount(prev => Math.max(0, prev - 1));
+          }
+        }
+        setUserReaction(type);
+      }
+
+      // Update article counts in background (simplified for this demo)
+      // In a real app, you'd use a database trigger or a more robust update
+      await supabase.from('articles').update({
+        likes_count: type === 'like' ? (userReaction === 'like' ? likesCount - 1 : likesCount + 1) : (userReaction === 'like' ? likesCount - 1 : likesCount),
+        dislikes_count: type === 'dislike' ? (userReaction === 'dislike' ? dislikesCount - 1 : dislikesCount + 1) : (userReaction === 'dislike' ? dislikesCount - 1 : dislikesCount)
+      }).eq('id', id);
+
+    } catch (err: any) {
+      console.error('Error handling reaction:', err);
+      setError('Ошибка при обновлении реакции');
+    } finally {
+      setReactionLoading(false);
+    }
+  };
 
   if (loading) return (
     <div className="flex justify-center py-20">
@@ -635,6 +822,7 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
           <div className="flex items-center gap-4 text-zinc-400 dark:text-zinc-500 text-sm">
             <span className="flex items-center gap-1.5"><Calendar className="w-4 h-4" /> {article.date}</span>
             <span className="flex items-center gap-1.5"><Clock className="w-4 h-4" /> {article.read_time}</span>
+            <span className="flex items-center gap-1.5"><Eye className="w-4 h-4" /> {viewsCount}</span>
           </div>
         </div>
         
@@ -643,25 +831,51 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
         </h1>
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between py-6 border-y border-zinc-200 dark:border-zinc-800 gap-6">
-          <Link 
-            to={`/profile/${article.author_id || article.author}`}
-            className="flex items-center gap-3 cursor-pointer hover:opacity-70 transition-opacity"
-          >
-            <div className="w-10 h-10 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center">
-              <User className="w-5 h-5 text-zinc-500 dark:text-zinc-400" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-bold dark:text-zinc-100">{article.author.toLowerCase()}</p>
-                {article.author_badge && (
-                  <span className="px-1.5 py-0.5 rounded bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-[10px] font-bold uppercase tracking-wider">
-                    {article.author_badge}
-                  </span>
-                )}
+          <div className="flex items-center gap-4">
+            <Link 
+              to={`/profile/${article.author_id || article.author}`}
+              className="flex items-center gap-3 cursor-pointer hover:opacity-70 transition-opacity"
+            >
+              <div className="w-10 h-10 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center">
+                <User className="w-5 h-5 text-zinc-500 dark:text-zinc-400" />
               </div>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">технический эксперт</p>
-            </div>
-          </Link>
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-bold dark:text-zinc-100">{article.author.toLowerCase()}</p>
+                  {authorProfile?.is_verified && (
+                    <ShieldCheck className="w-3.5 h-3.5 text-blue-500 fill-blue-500/10" />
+                  )}
+                  {(authorProfile?.badge || article.author_badge) && (
+                    <span className="px-1.5 py-0.5 rounded bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-[10px] font-bold uppercase tracking-wider">
+                      {authorProfile?.badge || article.author_badge}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">технический эксперт</p>
+              </div>
+            </Link>
+
+            {user && article.author_id && user.id !== article.author_id && (
+              <button
+                onClick={handleFollowAuthor}
+                disabled={followLoading}
+                className={`px-4 py-1.5 rounded-xl font-bold text-xs transition-all flex items-center gap-2 ${
+                  isFollowingAuthor
+                    ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600'
+                    : 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90'
+                } disabled:opacity-50`}
+              >
+                {followLoading ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : isFollowingAuthor ? (
+                  <UserMinus className="w-3 h-3" />
+                ) : (
+                  <UserPlus className="w-3 h-3" />
+                )}
+                {isFollowingAuthor ? 'Отписаться' : 'Подписаться'}
+              </button>
+            )}
+          </div>
           
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-bold text-zinc-400 dark:text-zinc-600 uppercase tracking-widest mr-2">поделиться:</span>
@@ -711,6 +925,40 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
         )}
       </div>
 
+      <div className="flex items-center gap-4 my-12 py-6 border-y border-zinc-200 dark:border-zinc-800">
+        <button
+          onClick={() => handleReaction('like')}
+          disabled={!user || reactionLoading}
+          className={`flex items-center gap-2 px-6 py-2.5 rounded-2xl transition-all font-bold text-sm ${
+            userReaction === 'like' 
+              ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' 
+              : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+          } disabled:opacity-50`}
+        >
+          <ThumbsUp className={`w-4 h-4 ${userReaction === 'like' ? 'fill-current' : ''}`} />
+          <span>{likesCount}</span>
+        </button>
+
+        <button
+          onClick={() => handleReaction('dislike')}
+          disabled={!user || reactionLoading}
+          className={`flex items-center gap-2 px-6 py-2.5 rounded-2xl transition-all font-bold text-sm ${
+            userReaction === 'dislike' 
+              ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' 
+              : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+          } disabled:opacity-50`}
+        >
+          <ThumbsDown className={`w-4 h-4 ${userReaction === 'dislike' ? 'fill-current' : ''}`} />
+          <span>{dislikesCount}</span>
+        </button>
+
+        {!user && (
+          <p className="text-xs text-zinc-500 dark:text-zinc-500 italic">
+            войдите, чтобы оценивать статьи
+          </p>
+        )}
+      </div>
+
       <CommentSection articleId={article.id} user={user} />
 
       <footer className="mt-16 pt-8 border-t border-zinc-200 dark:border-zinc-800 text-center">
@@ -730,65 +978,204 @@ const ProfileView = ({ user }: { user: SupabaseUser | null }) => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followLoading, setFollowLoading] = useState(false);
+  const [followersCount, setFollowersCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
 
   useEffect(() => {
     const fetchData = async () => {
       if (!author) return;
       
-      // Try to fetch by ID first (new system)
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', author)
-        .single();
-      
-      let currentProfile = profileData;
-      if (profileData) {
-        setProfile(profileData);
-      } else {
-        // Fallback for mock articles where author is a string name
-        currentProfile = {
-          id: 'mock',
-          username: author,
-          created_at: new Date().toISOString()
-        };
-        setProfile(currentProfile);
-      }
-
-      // Fetch articles for this author
-      if (isSupabaseConfigured) {
-        let query = supabase
-          .from('articles')
+      setLoading(true);
+      try {
+        // 1. Try to fetch by ID
+        let { data: profileData, error: idError } = await supabase
+          .from('profiles')
           .select('*')
-          .or(`author_id.eq.${author},author.eq.${author}`)
-          .order('created_at', { ascending: false });
+          .eq('id', author)
+          .maybeSingle();
         
-        // Only show drafts to the author themselves
-        if (user?.id !== author) {
-          query = query.eq('is_draft', false);
+        // 2. If not found by ID, try by username (for legacy/mock links)
+        if (!profileData) {
+          const { data: usernameData } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('username', author.startsWith('@') ? author : `@${author}`)
+            .maybeSingle();
+          profileData = usernameData;
+        }
+        
+        if (profileData) {
+          setProfile(profileData);
+          setFollowersCount(profileData.followers_count || 0);
+          setFollowingCount(profileData.following_count || 0);
+
+          // Check if current user is following this profile
+          if (user && user.id !== profileData.id) {
+            const { data: followData } = await supabase
+              .from('follows')
+              .select('*')
+              .eq('follower_id', user.id)
+              .eq('following_id', profileData.id)
+              .maybeSingle();
+            
+            setIsFollowing(!!followData);
+          }
+        } else {
+          // Fallback for mock articles
+          setProfile({
+            id: 'mock',
+            username: author,
+            created_at: new Date().toISOString()
+          });
         }
 
-        const { data: supabaseArticles } = await query;
-        
-        const mockArticles = MOCK_ARTICLES.filter(a => a.author === author || (currentProfile && a.author === currentProfile.username));
-        setArticles([...(supabaseArticles || []), ...mockArticles]);
-      } else {
-        setArticles(MOCK_ARTICLES.filter(a => a.author === author));
-      }
+        // Fetch articles for this author
+        if (isSupabaseConfigured) {
+          const authorId = profileData?.id || author;
+          const authorName = profileData?.username || author;
 
-      setLoading(false);
+          let query = supabase
+            .from('articles')
+            .select('*')
+            .or(`author_id.eq.${authorId},author.eq.${authorName}`)
+            .order('created_at', { ascending: false });
+          
+          if (user?.id !== authorId) {
+            query = query.eq('is_draft', false);
+          }
+
+          const { data: supabaseArticles } = await query;
+          let mappedArticles = supabaseArticles || [];
+
+          if (mappedArticles.length > 0) {
+            const authorIds = Array.from(new Set(mappedArticles.map(a => a.author_id).filter(Boolean)));
+            if (authorIds.length > 0) {
+              const { data: profilesData } = await supabase
+                .from('profiles')
+                .select('id, badge, is_verified')
+                .in('id', authorIds);
+              
+              if (profilesData) {
+                const profileMap = profilesData.reduce((acc, p) => {
+                  acc[p.id] = p;
+                  return acc;
+                }, {} as Record<string, any>);
+
+                mappedArticles = mappedArticles.map(a => ({
+                  ...a,
+                  author_badge: (a.author_id && profileMap[a.author_id]?.badge) || a.author_badge,
+                  author_is_verified: a.author_id && profileMap[a.author_id]?.is_verified
+                }));
+              }
+            }
+          }
+
+          const mockArticles = MOCK_ARTICLES.filter(a => a.author === authorName || a.author === author);
+          setArticles([...mappedArticles, ...mockArticles]);
+        }
+      } catch (err) {
+        console.error('Error fetching profile data:', err);
+      } finally {
+        setLoading(false);
+      }
     };
 
     fetchData();
+
+    // Subscribe to articles changes for real-time views/likes
+    const subscription = supabase
+      .channel(`profile-articles-${author || 'unknown'}`)
+      .on('postgres_changes', { 
+        event: 'UPDATE', 
+        schema: 'public', 
+        table: 'articles' 
+      }, (payload) => {
+        setArticles(prev => prev.map(a => a.id === payload.new.id ? { ...a, ...payload.new } : a));
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
   }, [author, user]);
 
+  const handleFollow = async () => {
+    if (!user || !profile || profile.id === 'mock' || !isSupabaseConfigured || followLoading || user.id === profile.id) return;
+
+    setFollowLoading(true);
+    try {
+      if (isFollowing) {
+        const { error } = await supabase
+          .from('follows')
+          .delete()
+          .eq('follower_id', user.id)
+          .eq('following_id', profile.id);
+        
+        if (error) throw error;
+        setIsFollowing(false);
+        setFollowersCount(prev => Math.max(0, prev - 1));
+      } else {
+        const { error } = await supabase
+          .from('follows')
+          .insert([{ follower_id: user.id, following_id: profile.id }]);
+        
+        if (error) throw error;
+        setIsFollowing(true);
+        setFollowersCount(prev => prev + 1);
+      }
+
+      // Update counts
+      await Promise.all([
+        supabase.rpc('increment_followers', { profile_id: profile.id, increment: isFollowing ? -1 : 1 }),
+        supabase.rpc('increment_following', { profile_id: user.id, increment: isFollowing ? -1 : 1 })
+      ]).catch(() => {
+        // Fallback if RPCs are not defined
+        supabase.from('profiles').update({ followers_count: isFollowing ? followersCount - 1 : followersCount + 1 }).eq('id', profile.id);
+      });
+
+    } catch (err: any) {
+      console.error('Error handling follow:', err);
+      alert('Не удалось обновить подписку. Проверьте подключение или настройки базы данных.');
+    } finally {
+      setFollowLoading(false);
+    }
+  };
+
   const authorBadge = articles[0]?.author_badge;
+
+  const hasFakeCheckmark = (text: string | undefined | null) => {
+    if (!text) return false;
+    const checkmarkEmojis = ['✅', '✔️', '☑️', '✓', '✔', '🗸', '🗹'];
+    return checkmarkEmojis.some(emoji => text.includes(emoji));
+  };
+
+  const isFakeVerified = hasFakeCheckmark(profile?.username);
 
   if (loading) return (
     <div className="flex justify-center py-20">
       <Loader2 className="w-8 h-8 animate-spin text-zinc-500" />
     </div>
   );
+
+  if (profile?.is_banned) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center px-4">
+        <div className="text-6xl mb-6">🚫</div>
+        <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mb-4">Этот пользователь заблокирован</h1>
+        <p className="text-zinc-600 dark:text-zinc-400 max-w-md">
+          Этот пользователь заблокирован, поэтому его статьи, комментарии, профиль скрыты, а доступ к аккаунту недоступен.
+        </p>
+        <button 
+          onClick={() => navigate('/')}
+          className="mt-8 text-sm font-bold text-zinc-900 dark:text-zinc-100 underline"
+        >
+          вернуться на главную
+        </button>
+      </div>
+    );
+  }
 
   return (
     <motion.div 
@@ -805,6 +1192,16 @@ const ProfileView = ({ user }: { user: SupabaseUser | null }) => {
         <span className="text-sm font-medium">назад</span>
       </button>
 
+      {isFakeVerified && (
+        <div className="mb-8 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-3xl flex items-center gap-4 text-amber-800 dark:text-amber-200 text-sm font-medium shadow-sm">
+          <AlertTriangle className="w-5 h-5 shrink-0 text-amber-500" />
+          <p className="flex items-center flex-wrap gap-1">
+            ⚠️ Это не настоящая галочка, галочки помечены так: 
+            <ShieldCheck className="w-4 h-4 text-blue-500 fill-blue-500/10 inline-block ml-1" />
+          </p>
+        </div>
+      )}
+
       <div className="flex flex-col items-center text-center mb-16">
         <div className="w-24 h-24 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center mb-6 shadow-xl overflow-hidden">
           {profile?.avatar_url ? (
@@ -815,12 +1212,53 @@ const ProfileView = ({ user }: { user: SupabaseUser | null }) => {
         </div>
         <div className="flex items-center gap-3 mb-2">
           <h1 className="text-3xl font-extrabold dark:text-zinc-100 tracking-tight">{profile?.username?.toLowerCase()}</h1>
-          {authorBadge && (
+          {profile?.is_verified && (
+            <ShieldCheck className="w-6 h-6 text-blue-500 fill-blue-500/10" />
+          )}
+          {(profile?.badge || authorBadge) && (
             <span className="px-2 py-1 rounded bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-xs font-bold uppercase tracking-widest">
-              {authorBadge}
+              {profile?.badge || authorBadge}
             </span>
           )}
         </div>
+
+        <div className="flex items-center gap-6 mb-6">
+          <div className="text-center">
+            <p className="text-xl font-extrabold dark:text-zinc-100">{followersCount}</p>
+            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">подписчиков</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xl font-extrabold dark:text-zinc-100">{followingCount}</p>
+            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">подписок</p>
+          </div>
+        </div>
+
+        {user && profile && user.id !== profile.id && profile.id !== 'mock' && (
+          <button
+            onClick={handleFollow}
+            disabled={followLoading}
+            className={`mb-6 px-8 py-2.5 rounded-2xl font-bold text-sm transition-all flex items-center gap-2 ${
+              isFollowing
+                ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600'
+                : 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90'
+            } disabled:opacity-50`}
+          >
+            {followLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : isFollowing ? (
+              <>
+                <UserMinus className="w-4 h-4" />
+                <span>отписаться</span>
+              </>
+            ) : (
+              <>
+                <UserPlus className="w-4 h-4" />
+                <span>подписаться</span>
+              </>
+            )}
+          </button>
+        )}
+
         <p className="text-zinc-600 dark:text-zinc-400 max-w-lg">
           {profile?.bio || "Этот пользователь не ставил себе описание("}
         </p>
@@ -863,25 +1301,36 @@ const SettingsView = ({ profile, onUpdate }: { profile: Profile | null, onUpdate
     setSuccess(false);
     setError(null);
 
-    const { error } = await supabase
-      .from('profiles')
-      .update({
-        username: username.startsWith('@') ? username : `@${username}`,
-        avatar_url: avatarUrl,
-        bio: bio,
-      })
-      .eq('id', profile.id);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          username: username.startsWith('@') ? username : `@${username}`,
+          avatar_url: avatarUrl,
+          bio: bio,
+        })
+        .eq('id', profile.id);
 
-    if (error) {
-      console.error('Error updating profile:', error);
-      setError('Ошибка при обновлении профиля');
-    } else {
+      if (error) throw error;
+
       setSuccess(true);
       onUpdate();
       setTimeout(() => setSuccess(false), 3000);
+    } catch (err: any) {
+      console.error('Error updating profile:', err);
+      setError(err.message || 'Ошибка при обновлении профиля');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
+
+  if (!profile && !loading) {
+    return (
+      <div className="flex justify-center py-20">
+        <Loader2 className="w-8 h-8 animate-spin text-zinc-500" />
+      </div>
+    );
+  }
 
   return (
     <motion.div
@@ -1033,19 +1482,41 @@ const HomeView = () => {
 
       const { data, error } = await supabase
         .from('articles')
-        .select('*')
+        .select('*, profiles!inner(id, badge, is_verified, is_banned)')
         .eq('is_draft', false)
+        .eq('profiles.is_banned', false)
         .order('created_at', { ascending: false });
 
       if (error) {
         console.error('Error fetching articles:', error);
       } else if (data) {
-        setArticles([...data, ...MOCK_ARTICLES]);
+        const mappedArticles = data.map(a => ({
+          ...a,
+          author_badge: (a.profiles as any)?.badge || a.author_badge,
+          author_is_verified: (a.profiles as any)?.is_verified
+        }));
+        setArticles([...mappedArticles, ...MOCK_ARTICLES]);
       }
       setLoading(false);
     };
 
     fetchArticles();
+
+    // Subscribe to articles changes for real-time views/likes
+    const subscription = supabase
+      .channel('articles-realtime')
+      .on('postgres_changes', { 
+        event: 'UPDATE', 
+        schema: 'public', 
+        table: 'articles' 
+      }, (payload) => {
+        setArticles(prev => prev.map(a => a.id === payload.new.id ? { ...a, ...payload.new } : a));
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
   }, []);
 
   const authors = Array.from(new Set(articles.map(a => a.author)));
@@ -1101,10 +1572,7 @@ const HomeView = () => {
         >
           <Zap className="w-3 h-3 fill-current" /> новые технологии
         </motion.div>
-        <h2 className="text-4xl font-extrabold mb-4 tracking-tight dark:text-zinc-100">блог о свободе интернета</h2>
-        <p className="text-zinc-600 dark:text-zinc-400 text-lg mb-8">
-          актуальные новости, подробные инструкции и лучшие практики по настройке vless, vpn и прокси.
-        </p>
+        <h2 className="text-4xl font-extrabold mb-8 tracking-tight dark:text-zinc-100">Посты, статьи, и т.д.</h2>
 
         <div className="relative max-w-xl mx-auto">
           <div className="flex gap-2">
@@ -1523,20 +1991,17 @@ const AdminView = () => {
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [editUsername, setEditUsername] = useState('');
   const [editBio, setEditBio] = useState('');
+  const [editBadge, setEditBadge] = useState('');
+  const [editIsVerified, setEditIsVerified] = useState(false);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editCommentContent, setEditCommentContent] = useState('');
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
   const navigate = useNavigate();
+  const [currentUser, setCurrentUser] = useState<any>(null);
 
-  console.log('AdminView rendered, isAuthorized:', isAuthorized);
-
+  const ADMIN_EMAILS = ['bubinadubina5@gmail.com'];
   const ADMIN_PASSWORD = 'MiOiJzdXBhYmFzZSIsInJlZiI6Im';
-
-  useEffect(() => {
-    if (isAuthorized) {
-      fetchAllData();
-    }
-  }, [isAuthorized]);
 
   const fetchAllData = async () => {
     setLoading(true);
@@ -1576,6 +2041,122 @@ const AdminView = () => {
     setLoading(false);
   };
 
+  // Move all hooks to the top, before any early returns
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setCurrentUser(data.user);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (isAuthorized) {
+      fetchAllData();
+
+      // Subscribe to articles changes for real-time views/likes
+      const articlesSub = supabase
+        .channel('admin-articles-realtime')
+        .on('postgres_changes', { 
+          event: 'UPDATE', 
+          schema: 'public', 
+          table: 'articles' 
+        }, (payload) => {
+          setArticles(prev => prev.map(a => a.id === payload.new.id ? { ...a, ...payload.new } : a));
+        })
+        .subscribe();
+
+      // Subscribe to profiles changes
+      const profilesSub = supabase
+        .channel('admin-profiles-realtime')
+        .on('postgres_changes', { 
+          event: '*', 
+          schema: 'public', 
+          table: 'profiles' 
+        }, (payload) => {
+          if (payload.eventType === 'UPDATE') {
+            setProfiles(prev => prev.map(p => p.id === payload.new.id ? { ...p, ...payload.new } : p));
+          } else if (payload.eventType === 'DELETE') {
+            setProfiles(prev => prev.filter(p => p.id !== payload.old.id));
+          } else if (payload.eventType === 'INSERT') {
+            setProfiles(prev => [payload.new as Profile, ...prev]);
+          }
+        })
+        .subscribe();
+
+      // Subscribe to comments changes
+      const commentsSub = supabase
+        .channel('admin-comments-realtime')
+        .on('postgres_changes', { 
+          event: '*', 
+          schema: 'public', 
+          table: 'comments' 
+        }, (payload) => {
+          if (payload.eventType === 'UPDATE') {
+            setComments(prev => prev.map(c => c.id === payload.new.id ? { ...c, ...payload.new } : c));
+          } else if (payload.eventType === 'DELETE') {
+            setComments(prev => prev.filter(c => c.id !== payload.old.id));
+          } else if (payload.eventType === 'INSERT') {
+            setComments(prev => [payload.new as Comment, ...prev]);
+          }
+        })
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(articlesSub);
+        supabase.removeChannel(profilesSub);
+        supabase.removeChannel(commentsSub);
+      };
+    }
+  }, [isAuthorized]);
+
+  if (isAuthorized && !currentUser) {
+    return (
+      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white dark:bg-zinc-900 rounded-3xl p-8 border border-zinc-200 dark:border-zinc-800 text-center">
+          <AlertIcon className="w-12 h-12 text-amber-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">Нужна авторизация</h2>
+          <p className="text-zinc-600 dark:text-zinc-400 mb-6">
+            Вы ввели пароль от админки, но не вошли в свой аккаунт Supabase. 
+            Пожалуйста, войдите под одной из разрешенных почт (например, <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100">{ADMIN_EMAILS[0]}</span>), чтобы база данных разрешила изменения.
+          </p>
+          <button 
+            onClick={() => navigate('/auth')}
+            className="w-full py-3 rounded-2xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-bold"
+          >
+            Перейти к входу
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (isAuthorized && !ADMIN_EMAILS.includes(currentUser?.email)) {
+    return (
+      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white dark:bg-zinc-900 rounded-3xl p-8 border border-zinc-200 dark:border-zinc-800 text-center">
+          <Shield className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">Доступ ограничен</h2>
+          <p className="text-zinc-600 dark:text-zinc-400 mb-6">
+            Вы вошли как <span className="font-bold">{currentUser?.email}</span>. 
+            У этого аккаунта нет прав администратора в базе данных.
+          </p>
+          <button 
+            onClick={() => supabase.auth.signOut().then(() => navigate('/auth'))}
+            className="w-full py-3 rounded-2xl bg-red-600 text-white font-bold"
+          >
+            Выйти и зайти под админом
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (password === ADMIN_PASSWORD) {
@@ -1587,71 +2168,109 @@ const AdminView = () => {
 
   const handleDeleteArticle = async (id: string) => {
     if (!confirm('Вы уверены, что хотите удалить эту статью?')) return;
-    const { error } = await supabase.from('articles').delete().eq('id', id);
-    if (!error) {
+    setActionLoading(id);
+    try {
+      const { error, count } = await supabase.from('articles').delete({ count: 'exact' }).eq('id', id);
+      if (error) throw error;
+      if (count === 0) throw new Error('У вас нет прав на удаление или статья не найдена.');
+      
       setArticles(articles.filter(a => a.id !== id));
       setToast({ message: 'Статья удалена!', type: 'success' });
-    } else {
-      setToast({ message: 'Ошибка при удалении: ' + error.message, type: 'error' });
+    } catch (error: any) {
+      console.error('Admin: Error deleting article:', error);
+      setToast({ message: 'Ошибка: ' + error.message, type: 'error' });
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const handleDeleteProfile = async (id: string) => {
-    if (!confirm('Вы уверены, что хотите удалить этого пользователя? Это также удалит все его статьи и комментарии.')) return;
-    const { error } = await supabase.from('profiles').delete().eq('id', id);
-    if (!error) {
-      setProfiles(profiles.filter(p => p.id !== id));
+    if (!confirm('Вы уверены, что хотите удалить этот профиль?')) return;
+    console.log('Admin: Deleting profile:', id);
+    setActionLoading(id);
+    try {
+      const { error, count } = await supabase.from('profiles').delete({ count: 'exact' }).eq('id', id);
+      if (error) throw error;
+      if (count === 0) throw new Error('У вас нет прав на удаление или профиль не найден.');
+      
+      setProfiles(prev => prev.filter(p => p.id !== id));
       setToast({ message: 'Профиль удален!', type: 'success' });
-    } else {
-      setToast({ message: 'Ошибка при удалении: ' + error.message, type: 'error' });
+    } catch (error: any) {
+      console.error('Admin: Error deleting profile:', error);
+      setToast({ message: 'Ошибка: ' + error.message, type: 'error' });
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const handleDeleteComment = async (id: string) => {
     if (!confirm('Вы уверены, что хотите удалить этот комментарий?')) return;
-    const { error } = await supabase.from('comments').delete().eq('id', id);
-    if (!error) {
-      setComments(comments.filter(c => c.id !== id));
+    console.log('Admin: Deleting comment:', id);
+    setActionLoading(id);
+    try {
+      const { error, count } = await supabase.from('comments').delete({ count: 'exact' }).eq('id', id);
+      if (error) throw error;
+      if (count === 0) throw new Error('У вас нет прав на удаление или комментарий не найден.');
+      
+      setComments(prev => prev.filter(c => c.id !== id));
       setToast({ message: 'Комментарий удален!', type: 'success' });
-    } else {
-      setToast({ message: 'Ошибка при удалении: ' + error.message, type: 'error' });
+    } catch (error: any) {
+      console.error('Admin: Error deleting comment:', error);
+      setToast({ message: 'Ошибка: ' + error.message, type: 'error' });
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const toggleDraft = async (article: Article) => {
-    const { error, count } = await supabase
-      .from('articles')
-      .update({ is_draft: !article.is_draft }, { count: 'exact' })
-      .eq('id', article.id);
-    
-    if (error) {
-      setToast({ message: 'Ошибка: ' + error.message, type: 'error' });
-    } else if (count === 0) {
-      setToast({ message: 'Ошибка: Статья не найдена в базе данных', type: 'error' });
-    } else {
-      setArticles(articles.map(a => a.id === article.id ? { ...a, is_draft: !a.is_draft } : a));
+    console.log('Admin: Toggling draft for:', article.id);
+    setActionLoading(article.id);
+    try {
+      const { error, count } = await supabase
+        .from('articles')
+        .update({ is_draft: !article.is_draft }, { count: 'exact' })
+        .eq('id', article.id);
+      
+      if (error) throw error;
+      if (count === 0) throw new Error('У вас нет прав на изменение или статья не найдена.');
+      
+      setArticles(prev => prev.map(a => a.id === article.id ? { ...a, is_draft: !a.is_draft } : a));
       setToast({ 
         message: article.is_draft ? 'Статья опубликована!' : 'Статья переведена в черновики!', 
         type: 'success' 
       });
+    } catch (error: any) {
+      console.error('Admin: Error toggling draft:', error);
+      setToast({ message: 'Ошибка: ' + error.message, type: 'error' });
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const handleApplyChanges = async (id: string) => {
-    const { error } = await supabase
-      .from('articles')
-      .update({ 
-        title: editTitle,
-        category: editCategory
-      })
-      .eq('id', id);
-    
-    if (!error) {
-      setArticles(articles.map(a => a.id === id ? { ...a, title: editTitle, category: editCategory } : a));
+    console.log('Admin: Applying article changes for:', id);
+    setActionLoading(id);
+    try {
+      const { error, count } = await supabase
+        .from('articles')
+        .update({ 
+          title: editTitle,
+          category: editCategory
+        }, { count: 'exact' })
+        .eq('id', id);
+      
+      if (error) throw error;
+      if (count === 0) throw new Error('У вас нет прав на изменение или статья не найдена.');
+      
+      setArticles(prev => prev.map(a => a.id === id ? { ...a, title: editTitle, category: editCategory } : a));
       setEditingArticleId(null);
       setToast({ message: 'Статья обновлена!', type: 'success' });
-    } else {
+      await fetchAllData(); // Refresh to be sure
+    } catch (error: any) {
+      console.error('Admin: Error updating article:', error);
       setToast({ message: 'Ошибка: ' + error.message, type: 'error' });
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -1662,20 +2281,32 @@ const AdminView = () => {
   };
 
   const handleApplyProfileChanges = async (id: string) => {
-    const { error } = await supabase
-      .from('profiles')
-      .update({ 
-        username: editUsername,
-        bio: editBio
-      })
-      .eq('id', id);
-    
-    if (!error) {
-      setProfiles(profiles.map(p => p.id === id ? { ...p, username: editUsername, bio: editBio } : p));
+    console.log('Admin: Applying profile changes for:', id);
+    setActionLoading(id);
+    try {
+      const formattedUsername = editUsername.startsWith('@') ? editUsername : `@${editUsername}`;
+      const { error, count } = await supabase
+        .from('profiles')
+        .update({ 
+          username: formattedUsername,
+          bio: editBio,
+          badge: editBadge,
+          is_verified: editIsVerified
+        }, { count: 'exact' })
+        .eq('id', id);
+      
+      if (error) throw error;
+      if (count === 0) throw new Error('У вас нет прав на изменение или профиль не найден.');
+      
+      setProfiles(prev => prev.map(p => p.id === id ? { ...p, username: formattedUsername, bio: editBio, badge: editBadge, is_verified: editIsVerified } : p));
       setEditingProfileId(null);
       setToast({ message: 'Профиль обновлен!', type: 'success' });
-    } else {
+      await fetchAllData(); // Refresh to be sure
+    } catch (error: any) {
+      console.error('Admin: Error updating profile:', error);
       setToast({ message: 'Ошибка: ' + error.message, type: 'error' });
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -1683,22 +2314,59 @@ const AdminView = () => {
     setEditingProfileId(profile.id);
     setEditUsername(profile.username);
     setEditBio(profile.bio || '');
+    setEditBadge(profile.badge || '');
+    setEditIsVerified(profile.is_verified || false);
+  };
+
+  const toggleBan = async (profile: Profile) => {
+    console.log('Admin: Toggling ban for:', profile.id);
+    setActionLoading(profile.id);
+    try {
+      const { error, count } = await supabase
+        .from('profiles')
+        .update({ is_banned: !profile.is_banned }, { count: 'exact' })
+        .eq('id', profile.id);
+      
+      if (error) throw error;
+      if (count === 0) throw new Error('У вас нет прав на это действие (RLS блокирует обновление).');
+      
+      setProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, is_banned: !profile.is_banned } : p));
+      setToast({ 
+        message: profile.is_banned ? 'Пользователь разбанен!' : 'Пользователь забанен!', 
+        type: 'success' 
+      });
+      await fetchAllData(); // Refresh to be sure
+    } catch (error: any) {
+      console.error('Admin: Error toggling ban:', error);
+      setToast({ message: 'Ошибка: ' + error.message, type: 'error' });
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const handleApplyCommentChanges = async (id: string) => {
-    const { error } = await supabase
-      .from('comments')
-      .update({ 
-        content: editCommentContent
-      })
-      .eq('id', id);
-    
-    if (!error) {
-      setComments(comments.map(c => c.id === id ? { ...c, content: editCommentContent } : c));
+    console.log('Admin: Applying comment changes for:', id);
+    setActionLoading(id);
+    try {
+      const { error, count } = await supabase
+        .from('comments')
+        .update({ 
+          content: editCommentContent
+        }, { count: 'exact' })
+        .eq('id', id);
+      
+      if (error) throw error;
+      if (count === 0) throw new Error('У вас нет прав на изменение или комментарий не найден.');
+      
+      setComments(prev => prev.map(c => c.id === id ? { ...c, content: editCommentContent } : c));
       setEditingCommentId(null);
       setToast({ message: 'Комментарий обновлен!', type: 'success' });
-    } else {
+      await fetchAllData(); // Refresh to be sure
+    } catch (error: any) {
+      console.error('Admin: Error updating comment:', error);
       setToast({ message: 'Ошибка: ' + error.message, type: 'error' });
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -1721,13 +2389,6 @@ const AdminView = () => {
     c.content.toLowerCase().includes(searchQuery.toLowerCase()) || 
     (c.profiles?.username || c.author_name || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
-
-  useEffect(() => {
-    if (toast) {
-      const timer = setTimeout(() => setToast(null), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [toast]);
 
   if (!isAuthorized) {
     return (
@@ -1897,6 +2558,7 @@ const AdminView = () => {
                 <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/20">
                   <th className="px-6 py-5 text-xs font-bold text-zinc-500 uppercase tracking-widest">Статья</th>
                   <th className="px-6 py-5 text-xs font-bold text-zinc-500 uppercase tracking-widest">Автор</th>
+                  <th className="px-6 py-5 text-xs font-bold text-zinc-500 uppercase tracking-widest text-center">Просмотры</th>
                   <th className="px-6 py-5 text-xs font-bold text-zinc-500 uppercase tracking-widest">Статус</th>
                   <th className="px-6 py-5 text-xs font-bold text-zinc-500 uppercase tracking-widest text-right">Действия</th>
                 </tr>
@@ -1947,6 +2609,12 @@ const AdminView = () => {
                         <span className="text-sm dark:text-zinc-300 font-bold">{article.author}</span>
                       </div>
                     </td>
+                    <td className="px-6 py-5 text-center">
+                      <div className="flex items-center justify-center gap-1.5 text-zinc-500 dark:text-zinc-400 font-bold text-sm">
+                        <Eye className="w-4 h-4" />
+                        {article.views_count || 0}
+                      </div>
+                    </td>
                     <td className="px-6 py-5">
                       <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
                         article.is_draft 
@@ -1961,11 +2629,12 @@ const AdminView = () => {
                         {editingArticleId === article.id ? (
                           <>
                             <button 
-                              onClick={() => handleApplyChanges(article.id)}
-                              className="px-3 py-1.5 rounded-xl bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-colors flex items-center gap-1"
-                            >
-                              <Check className="w-3 h-3" /> Применить
-                            </button>
+                               onClick={() => handleApplyChanges(article.id)}
+                               disabled={actionLoading === article.id}
+                               className="px-3 py-1.5 rounded-xl bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-colors flex items-center gap-1 disabled:opacity-50"
+                             >
+                               {actionLoading === article.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Применить
+                             </button>
                             <button 
                               onClick={() => setEditingArticleId(null)}
                               className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-400"
@@ -2005,10 +2674,11 @@ const AdminView = () => {
                             </Link>
                             <button 
                               onClick={() => handleDeleteArticle(article.id)}
-                              className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-700 dark:text-zinc-400 hover:text-red-600"
+                              disabled={actionLoading === article.id}
+                              className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-700 dark:text-zinc-400 hover:text-red-600 disabled:opacity-50"
                               title="Удалить"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              {actionLoading === article.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                             </button>
                           </>
                         )}
@@ -2062,14 +2732,41 @@ const AdminView = () => {
                                 className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 dark:text-zinc-100 min-h-[60px] resize-none"
                                 placeholder="Bio"
                               />
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  value={editBadge}
+                                  onChange={(e) => setEditBadge(e.target.value)}
+                                  className="flex-1 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-[10px] focus:outline-none dark:text-zinc-100"
+                                  placeholder="Badge (e.g. Админ)"
+                                />
+                                <label className="flex items-center gap-1 text-[10px] font-bold text-zinc-500 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={editIsVerified}
+                                    onChange={(e) => setEditIsVerified(e.target.checked)}
+                                    className="rounded border-zinc-300 dark:border-zinc-700"
+                                  />
+                                  Галочка
+                                </label>
+                              </div>
                             </div>
                           ) : (
                             <>
-                              <div className="font-bold text-sm dark:text-zinc-100">{p.username}</div>
+                              <div className="flex items-center gap-1.5">
+                                <div className="font-bold text-sm dark:text-zinc-100">{p.username}</div>
+                                {p.is_verified && (
+                                  <ShieldCheck className="w-3.5 h-3.5 text-blue-500 fill-blue-500/10" />
+                                )}
+                              </div>
                               <div className="text-[10px] text-zinc-500 line-clamp-1 max-w-[200px]">{p.bio || "Нет описания"}</div>
+                              {p.badge && (
+                                <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-[8px] font-black uppercase tracking-wider">
+                                  {p.badge}
+                                </span>
+                              )}
                             </>
                           )}
-                          <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-1">User</div>
                         </div>
                       </div>
                     </td>
@@ -2082,11 +2779,12 @@ const AdminView = () => {
                         {editingProfileId === p.id ? (
                           <>
                             <button 
-                              onClick={() => handleApplyProfileChanges(p.id)}
-                              className="px-3 py-1.5 rounded-xl bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-colors flex items-center gap-1"
-                            >
-                              <Check className="w-3 h-3" /> Применить
-                            </button>
+                               onClick={() => handleApplyProfileChanges(p.id)}
+                               disabled={actionLoading === p.id}
+                               className="px-3 py-1.5 rounded-xl bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-colors flex items-center gap-1 disabled:opacity-50"
+                             >
+                               {actionLoading === p.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Применить
+                             </button>
                             <button 
                               onClick={() => setEditingProfileId(null)}
                               className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-400"
@@ -2096,6 +2794,18 @@ const AdminView = () => {
                           </>
                         ) : (
                           <>
+                            <button 
+                              onClick={() => toggleBan(p)}
+                              disabled={actionLoading === p.id}
+                              className={`p-2.5 rounded-xl transition-colors disabled:opacity-50 ${
+                                p.is_banned 
+                                  ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' 
+                                  : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-400'
+                              }`}
+                              title={p.is_banned ? "Разбанить" : "Забанить"}
+                            >
+                              {actionLoading === p.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />}
+                            </button>
                             <button 
                               onClick={() => startEditingProfile(p)}
                               className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-400"
@@ -2112,10 +2822,11 @@ const AdminView = () => {
                             </Link>
                             <button 
                               onClick={() => handleDeleteProfile(p.id)}
-                              className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-700 dark:text-zinc-400 hover:text-red-600"
+                              disabled={actionLoading === p.id}
+                              className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-700 dark:text-zinc-400 hover:text-red-600 disabled:opacity-50"
                               title="Удалить"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              {actionLoading === p.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                             </button>
                           </>
                         )}
@@ -2176,11 +2887,12 @@ const AdminView = () => {
                         {editingCommentId === c.id ? (
                           <>
                             <button 
-                              onClick={() => handleApplyCommentChanges(c.id)}
-                              className="px-3 py-1.5 rounded-xl bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-colors flex items-center gap-1"
-                            >
-                              <Check className="w-3 h-3" /> Применить
-                            </button>
+                               onClick={() => handleApplyCommentChanges(c.id)}
+                               disabled={actionLoading === c.id}
+                               className="px-3 py-1.5 rounded-xl bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-colors flex items-center gap-1 disabled:opacity-50"
+                             >
+                               {actionLoading === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Применить
+                             </button>
                             <button 
                               onClick={() => setEditingCommentId(null)}
                               className="p-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-400"
@@ -2199,10 +2911,11 @@ const AdminView = () => {
                             </button>
                             <button 
                               onClick={() => handleDeleteComment(c.id)}
-                              className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-700 dark:text-zinc-400 hover:text-red-600"
+                              disabled={actionLoading === c.id}
+                              className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-zinc-700 dark:text-zinc-400 hover:text-red-600 disabled:opacity-50"
                               title="Удалить"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              {actionLoading === c.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                             </button>
                           </>
                         )}
@@ -2216,6 +2929,76 @@ const AdminView = () => {
         </div>
       )}
     </div>
+  );
+};
+
+const TermsView = () => {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      className="max-w-3xl mx-auto py-12 px-4"
+    >
+      <h1 className="text-4xl font-bold mb-8 dark:text-zinc-100">Условия использования</h1>
+      
+      <div className="space-y-8 text-zinc-600 dark:text-zinc-400 leading-relaxed">
+        <section>
+          <h2 className="text-xl font-bold mb-4 text-zinc-900 dark:text-zinc-100">1. Принятие условий</h2>
+          <p>
+            Используя платформу vlessfree, вы соглашаетесь соблюдать данные Условия использования. Если вы не согласны с каким-либо пунктом, пожалуйста, прекратите использование сервиса.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold mb-4 text-zinc-900 dark:text-zinc-100">2. Правила сообщества</h2>
+          <p>
+            Пользователи несут полную ответственность за публикуемый контент. Запрещено:
+          </p>
+          <ul className="list-disc pl-5 mt-2 space-y-2">
+            <li>Публиковать контент, нарушающий законодательство.</li>
+            <li>Публиковать контент, содержащий чужие личные данные, порнографию, и так далее.</li>
+            <li>Оскорблять других участников сообщества.</li>
+            <li>Распространять спам или вредоносное ПО.</li>
+            <li>Выдавать себя за других лиц или представителей администрации.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold mb-4 text-zinc-900 dark:text-zinc-100">3. Интеллектуальная собственность</h2>
+          <p>
+            Вы сохраняете права на контент, который создаете. Однако, публикуя его на vlessfree, вы предоставляете нам неисключительную лицензию на его отображение, хранение и распространение в рамках работы сервиса.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold mb-4 text-zinc-900 dark:text-zinc-100">4. Модерация и блокировка</h2>
+          <p>
+            Администрация оставляет за собой право удалять контент или блокировать аккаунты пользователей, нарушающих данные правила, без предварительного уведомления.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold mb-4 text-zinc-900 dark:text-zinc-100">5. Отказ от ответственности</h2>
+          <p>
+            Сервис предоставляется "как есть". Мы не гарантируем бесперебойную работу и не несем ответственности за возможную потерю данных или ущерб, возникший в результате использования платформы.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold mb-4 text-zinc-900 dark:text-zinc-100">6. Изменения условий</h2>
+          <p>
+            Мы можем обновлять данные условия в любое время. Продолжение использования сервиса после внесения изменений означает ваше согласие с новой редакцией.
+          </p>
+        </section>
+      </div>
+
+      <div className="mt-12 pt-8 border-t border-zinc-200 dark:border-zinc-800">
+        <Link to="/" className="text-sm font-bold text-zinc-900 dark:text-zinc-100 hover:underline">
+          ← Вернуться на главную
+        </Link>
+      </div>
+    </motion.div>
   );
 };
 
@@ -2274,6 +3057,13 @@ export default function App() {
       console.error('Error fetching profile:', error);
     } else {
       setProfile(data);
+      // Check if user is banned
+      if (data?.is_banned) {
+        console.warn('User is banned, logging out...');
+        await supabase.auth.signOut();
+        setUser(null);
+        setProfile(null);
+      }
     }
   };
 
@@ -2313,6 +3103,7 @@ export default function App() {
               <Route path="/edit/:id" element={user ? <ArticleEditor user={user} profile={profile} /> : <Navigate to="/auth" />} />
               <Route path="/settings" element={user ? <SettingsView profile={profile} onUpdate={() => fetchProfile(user.id)} /> : <Navigate to="/auth" />} />
               <Route path="/admin" element={<AdminView />} />
+              <Route path="/terms" element={<TermsView />} />
               <Route path="/auth" element={user ? <Navigate to="/" /> : <Auth />} />
               <Route path="*" element={
                 <div className="text-center py-20 dark:text-zinc-100">
@@ -2331,8 +3122,11 @@ export default function App() {
               <div className="flex items-center">
               <span className="text-lg font-medium text-zinc-900 dark:text-zinc-100">vlessfree</span>
             </div>
-              <div className="text-sm text-zinc-400 dark:text-zinc-600">
-                © 2026 vlessfree. все права защищены.
+              <div className="flex items-center gap-6">
+                <Link to="/terms" className="text-xs font-bold uppercase tracking-widest text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors">условия использования</Link>
+                <div className="text-sm text-zinc-400 dark:text-zinc-600">
+                  © 2026 vlessfree. все права защищены.
+                </div>
               </div>
             </div>
           </div>
