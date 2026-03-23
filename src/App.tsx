@@ -3054,7 +3054,28 @@ export default function App() {
       .single();
     
     if (error) {
-      console.error('Error fetching profile:', error);
+      if (error.code === 'PGRST116') {
+        // Profile doesn't exist, create one (likely Google OAuth first login)
+        const { data: userData } = await supabase.auth.getUser();
+        if (userData?.user) {
+          const email = userData.user.email;
+          const username = email ? `@${email.split('@')[0]}` : `@user_${userId.slice(0, 5)}`;
+          
+          const { data: newProfile, error: createError } = await supabase
+            .from('profiles')
+            .insert([{ id: userId, username }])
+            .select()
+            .single();
+          
+          if (createError) {
+            console.error('Error creating profile for new user:', createError);
+          } else {
+            setProfile(newProfile);
+          }
+        }
+      } else {
+        console.error('Error fetching profile:', error);
+      }
     } else {
       setProfile(data);
       // Check if user is banned
