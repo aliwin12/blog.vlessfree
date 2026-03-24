@@ -14,6 +14,7 @@ import {
   Globe, 
   Zap,
   ArrowLeft,
+  ArrowRight,
   Share2,
   Bookmark,
   Moon,
@@ -62,11 +63,11 @@ import {
 } from 'react-router-dom';
 import Markdown from 'react-markdown';
 import { GoogleGenAI, Type } from "@google/genai";
-import { Article, MOCK_ARTICLES, Comment, Profile } from './types';
+import { Article, MOCK_ARTICLES, Comment, Profile, BlockedUser } from './types';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { Auth } from './components/Auth';
 import { auth } from './lib/firebase';
-import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { onIdTokenChanged, User as FirebaseUser } from 'firebase/auth';
 
 const Navbar = ({ isDark, toggleDark, user, profile }: { isDark: boolean, toggleDark: () => void, user: any | null, profile: Profile | null }) => {
   const handleLogout = async () => {
@@ -200,8 +201,17 @@ const ArticleCard = ({ article }: { article: Article }) => (
           to={`/profile/${article.author_id || article.author}`}
           className="flex items-center gap-2 cursor-pointer hover:opacity-70 transition-opacity"
         >
-          <div className="w-6 h-6 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center">
-            <User className="w-3 h-3 text-zinc-500 dark:text-zinc-400" />
+          <div className="w-6 h-6 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden flex items-center justify-center">
+            {article.author_profile?.avatar_url ? (
+              <img 
+                src={article.author_profile.avatar_url} 
+                alt={article.author}
+                className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <User className="w-3 h-3 text-zinc-500 dark:text-zinc-400" />
+            )}
           </div>
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-medium text-zinc-700 dark:text-zinc-400">{article.author.toLowerCase()}</span>
@@ -461,10 +471,13 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
   const [isFollowingAuthor, setIsFollowingAuthor] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [authorProfile, setAuthorProfile] = useState<Profile | null>(null);
+  const [moreArticles, setMoreArticles] = useState<Article[]>([]);
+  const [moreArticlesLoading, setMoreArticlesLoading] = useState(false);
 
   useEffect(() => {
     const fetchArticle = async () => {
       if (!id) return;
+      setLoading(true);
 
       // First check mock articles
       const mockIndex = MOCK_ARTICLES.findIndex(a => a.id === id);
@@ -559,7 +572,52 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
     };
 
     fetchArticle();
+    fetchMoreArticles();
   }, [id, user]);
+
+  const fetchMoreArticles = async () => {
+    if (!isSupabaseConfigured) {
+      setMoreArticles(MOCK_ARTICLES.filter(a => a.id !== id).slice(0, 3));
+      return;
+    }
+
+    setMoreArticlesLoading(true);
+    try {
+      // Get blocked users to filter them out
+      let blockedUserIds: string[] = [];
+      if (user) {
+        const { data: blockedData } = await supabase
+          .from('blocked_users')
+          .select('blocked_id')
+          .eq('blocker_id', user.uid);
+        if (blockedData) {
+          blockedUserIds = blockedData.map(b => b.blocked_id);
+        }
+      }
+
+      const { data, error } = await supabase
+        .from('articles')
+        .select('*, profiles(username, avatar_url)')
+        .eq('is_draft', false)
+        .neq('id', id)
+        .order('created_at', { ascending: false })
+        .limit(6);
+
+      if (data) {
+        const mapped = data
+          .filter(a => !blockedUserIds.includes(a.author_id))
+          .map(a => ({
+            ...a,
+            author_profile: a.profiles
+          }));
+        setMoreArticles(mapped as any);
+      }
+    } catch (err) {
+      console.error('Error fetching more articles:', err);
+    } finally {
+      setMoreArticlesLoading(false);
+    }
+  };
 
   const handleFollowAuthor = async () => {
     if (!user || !article || !article.author_id || !isSupabaseConfigured || followLoading || user.uid === article.author_id) return;
@@ -838,12 +896,21 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
               to={`/profile/${article.author_id || article.author}`}
               className="flex items-center gap-3 cursor-pointer hover:opacity-70 transition-opacity"
             >
-              <div className="w-10 h-10 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center">
-                <User className="w-5 h-5 text-zinc-500 dark:text-zinc-400" />
+              <div className="w-10 h-10 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden flex items-center justify-center">
+                {authorProfile?.avatar_url ? (
+                  <img 
+                    src={authorProfile.avatar_url} 
+                    alt={authorProfile.username}
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <User className="w-5 h-5 text-zinc-500 dark:text-zinc-400" />
+                )}
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <p className="text-sm font-bold dark:text-zinc-100">{article.author.toLowerCase()}</p>
+                  <p className="text-sm font-bold dark:text-zinc-100">{(authorProfile?.username || article.author).toLowerCase()}</p>
                   {authorProfile?.is_verified && (
                     <ShieldCheck className="w-3.5 h-3.5 text-blue-500 fill-blue-500/10" />
                   )}
@@ -963,6 +1030,34 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
 
       <CommentSection articleId={article.id} user={user} />
 
+      <section className="mt-20 pt-12 border-t border-zinc-200 dark:border-zinc-800">
+        <div className="flex items-center justify-between mb-8">
+          <h3 className="text-2xl font-bold dark:text-zinc-100 flex items-center gap-3">
+            <Zap className="w-6 h-6 text-emerald-500 fill-emerald-500/10" />
+            Читайте также
+          </h3>
+          <Link 
+            to="/" 
+            className="text-sm font-bold text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors flex items-center gap-2 group"
+          >
+            все статьи
+            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+          </Link>
+        </div>
+
+        {moreArticlesLoading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {moreArticles.map(a => (
+              <ArticleCard key={a.id} article={a} />
+            ))}
+          </div>
+        )}
+      </section>
+
       <footer className="mt-16 pt-8 border-t border-zinc-200 dark:border-zinc-800 text-center">
         <div className="text-zinc-400 dark:text-zinc-500 text-sm font-mono">
           <p className="mb-2">--------------------------------------</p>
@@ -984,6 +1079,9 @@ const ProfileView = ({ user }: { user: any | null }) => {
   const [followLoading, setFollowLoading] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [hasBlocked, setHasBlocked] = useState(false);
+  const [blockLoading, setBlockLoading] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -998,7 +1096,7 @@ const ProfileView = ({ user }: { user: any | null }) => {
           .eq('id', author)
           .maybeSingle();
         
-        // 2. If not found by ID, try by username (for legacy/mock links)
+        // 2. If not found by ID, try by username
         if (!profileData) {
           const { data: usernameData } = await supabase
             .from('profiles')
@@ -1013,19 +1111,29 @@ const ProfileView = ({ user }: { user: any | null }) => {
           setFollowersCount(profileData.followers_count || 0);
           setFollowingCount(profileData.following_count || 0);
 
-          // Check if current user is following this profile
+          // Check if current user is following or blocked
           if (user && user.uid !== profileData.id) {
-            const { data: followData } = await supabase
-              .from('follows')
-              .select('*')
-              .eq('follower_id', user.uid)
-              .eq('following_id', profileData.id)
-              .maybeSingle();
+            const [followRes, blockRes] = await Promise.all([
+              supabase
+                .from('follows')
+                .select('*')
+                .eq('follower_id', user.uid)
+                .eq('following_id', profileData.id)
+                .maybeSingle(),
+              supabase
+                .from('blocked_users')
+                .select('*')
+                .or(`and(blocker_id.eq.${user.uid},blocked_id.eq.${profileData.id}),and(blocker_id.eq.${profileData.id},blocked_id.eq.${user.uid})`)
+            ]);
             
-            setIsFollowing(!!followData);
+            setIsFollowing(!!followRes.data);
+            
+            if (blockRes.data) {
+              setHasBlocked(blockRes.data.some(b => b.blocker_id === user.uid));
+              setIsBlocked(blockRes.data.some(b => b.blocker_id === profileData.id));
+            }
           }
         } else {
-          // Fallback for mock articles
           setProfile({
             id: 'mock',
             username: author,
@@ -1033,7 +1141,7 @@ const ProfileView = ({ user }: { user: any | null }) => {
           });
         }
 
-        // Fetch articles for this author
+        // Fetch articles
         if (isSupabaseConfigured) {
           const authorId = profileData?.id || author;
           const authorName = profileData?.username || author;
@@ -1086,7 +1194,6 @@ const ProfileView = ({ user }: { user: any | null }) => {
 
     fetchData();
 
-    // Subscribe to articles changes for real-time views/likes
     const subscription = supabase
       .channel(`profile-articles-${author || 'unknown'}`)
       .on('postgres_changes', { 
@@ -1104,7 +1211,7 @@ const ProfileView = ({ user }: { user: any | null }) => {
   }, [author, user]);
 
   const handleFollow = async () => {
-    if (!user || !profile || profile.id === 'mock' || !isSupabaseConfigured || followLoading || user.uid === profile.id) return;
+    if (!user || !profile || profile.id === 'mock' || !isSupabaseConfigured || followLoading || user.uid === profile.id || hasBlocked || isBlocked) return;
 
     setFollowLoading(true);
     try {
@@ -1128,32 +1235,47 @@ const ProfileView = ({ user }: { user: any | null }) => {
         setFollowersCount(prev => prev + 1);
       }
 
-      // Update counts
       await Promise.all([
         supabase.rpc('increment_followers', { profile_id: profile.id, increment: isFollowing ? -1 : 1 }),
         supabase.rpc('increment_following', { profile_id: user.uid, increment: isFollowing ? -1 : 1 })
       ]).catch(() => {
-        // Fallback if RPCs are not defined
         supabase.from('profiles').update({ followers_count: isFollowing ? followersCount - 1 : followersCount + 1 }).eq('id', profile.id);
       });
 
     } catch (err: any) {
       console.error('Error handling follow:', err);
-      alert('Не удалось обновить подписку. Проверьте подключение или настройки базы данных.');
     } finally {
       setFollowLoading(false);
     }
   };
 
-  const authorBadge = articles[0]?.author_badge;
+  const handleBlock = async () => {
+    if (!user || !profile || profile.id === 'mock' || blockLoading || user.uid === profile.id) return;
 
-  const hasFakeCheckmark = (text: string | undefined | null) => {
-    if (!text) return false;
-    const checkmarkEmojis = ['✅', '✔️', '☑️', '✓', '✔', '🗸', '🗹'];
-    return checkmarkEmojis.some(emoji => text.includes(emoji));
+    setBlockLoading(true);
+    try {
+      if (hasBlocked) {
+        await supabase
+          .from('blocked_users')
+          .delete()
+          .eq('blocker_id', user.uid)
+          .eq('blocked_id', profile.id);
+        setHasBlocked(false);
+      } else {
+        await supabase
+          .from('blocked_users')
+          .insert([{ blocker_id: user.uid, blocked_id: profile.id }]);
+        setHasBlocked(true);
+        setIsFollowing(false);
+      }
+    } catch (err) {
+      console.error('Error blocking:', err);
+    } finally {
+      setBlockLoading(false);
+    }
   };
 
-  const isFakeVerified = hasFakeCheckmark(profile?.username);
+  const authorBadge = articles[0]?.author_badge;
 
   if (loading) return (
     <div className="flex justify-center py-20">
@@ -1167,14 +1289,9 @@ const ProfileView = ({ user }: { user: any | null }) => {
         <div className="text-6xl mb-6">🚫</div>
         <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mb-4">Этот пользователь заблокирован</h1>
         <p className="text-zinc-600 dark:text-zinc-400 max-w-md">
-          Этот пользователь заблокирован, поэтому его статьи, комментарии, профиль скрыты, а доступ к аккаунту недоступен.
+          Этот пользователь заблокирован модерацией.
         </p>
-        <button 
-          onClick={() => navigate('/')}
-          className="mt-8 text-sm font-bold text-zinc-900 dark:text-zinc-100 underline"
-        >
-          вернуться на главную
-        </button>
+        <button onClick={() => navigate('/')} className="mt-8 text-sm font-bold text-zinc-900 dark:text-zinc-100 underline">вернуться на главную</button>
       </div>
     );
   }
@@ -1188,116 +1305,165 @@ const ProfileView = ({ user }: { user: any | null }) => {
     >
       <button 
         onClick={() => navigate(-1)}
-        className="flex items-center gap-2 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 mb-12 transition-colors group"
+        className="flex items-center gap-2 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 mb-8 transition-colors group"
       >
         <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
         <span className="text-sm font-medium">назад</span>
       </button>
 
-      {isFakeVerified && (
-        <div className="mb-8 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-3xl flex items-center gap-4 text-amber-800 dark:text-amber-200 text-sm font-medium shadow-sm">
-          <AlertTriangle className="w-5 h-5 shrink-0 text-amber-500" />
-          <p className="flex items-center flex-wrap gap-1">
-            ⚠️ Это не настоящая галочка, галочки помечены так: 
-            <ShieldCheck className="w-4 h-4 text-blue-500 fill-blue-500/10 inline-block ml-1" />
-          </p>
+      {isBlocked && (
+        <div className="mb-8 p-6 bg-red-500 text-white rounded-3xl flex items-center gap-4 shadow-xl">
+          <Ban className="w-6 h-6 shrink-0" />
+          <p className="font-bold">Этот пользователь заблокировал вас. Вы не можете видеть его посты или взаимодействовать с ним.</p>
         </div>
       )}
 
-      <div className="flex flex-col items-center text-center mb-16">
-        <div className="w-24 h-24 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center mb-6 shadow-xl overflow-hidden">
-          {profile?.avatar_url ? (
-            <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+      {/* Banner & Profile Header */}
+      <div className="relative mb-24">
+        <div className="h-48 md:h-64 w-full rounded-3xl bg-zinc-100 dark:bg-zinc-800 overflow-hidden border border-zinc-200 dark:border-zinc-800 shadow-sm">
+          {profile?.banner_url ? (
+            <img src={profile.banner_url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
           ) : (
-            <User className="w-12 h-12 text-zinc-600 dark:text-zinc-400" />
+            <div className="w-full h-full bg-gradient-to-br from-zinc-100 to-zinc-200 dark:from-zinc-800 dark:to-zinc-900" />
           )}
         </div>
+        
+        <div className="absolute -bottom-16 left-1/2 -translate-x-1/2 flex flex-col items-center">
+          <div className="w-32 h-32 rounded-full bg-white dark:bg-zinc-950 p-1.5 shadow-2xl">
+            <div className="w-full h-full rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center overflow-hidden">
+              {profile?.avatar_url ? (
+                <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              ) : (
+                <User className="w-16 h-16 text-zinc-600 dark:text-zinc-400" />
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col items-center text-center mb-16">
         <div className="flex items-center gap-3 mb-2">
-          <h1 className="text-3xl font-extrabold dark:text-zinc-100 tracking-tight">{profile?.username?.toLowerCase()}</h1>
+          <h1 className="text-4xl font-black dark:text-zinc-100 tracking-tight">{profile?.username?.toLowerCase()}</h1>
           {profile?.is_verified && (
-            <ShieldCheck className="w-6 h-6 text-blue-500 fill-blue-500/10" />
+            <ShieldCheck className="w-8 h-8 text-blue-500 fill-blue-500/10" />
           )}
           {(profile?.badge || authorBadge) && (
-            <span className="px-2 py-1 rounded bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-xs font-bold uppercase tracking-widest">
+            <span className="px-3 py-1 rounded-lg bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-xs font-black uppercase tracking-widest">
               {profile?.badge || authorBadge}
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-6 mb-6">
+        <div className="flex items-center gap-8 mb-8">
           <div className="text-center">
-            <p className="text-xl font-extrabold dark:text-zinc-100">{followersCount}</p>
-            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">подписчиков</p>
+            <p className="text-2xl font-black dark:text-zinc-100">{followersCount}</p>
+            <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">подписчиков</p>
           </div>
           <div className="text-center">
-            <p className="text-xl font-extrabold dark:text-zinc-100">{followingCount}</p>
-            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">подписок</p>
+            <p className="text-2xl font-black dark:text-zinc-100">{followingCount}</p>
+            <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">подписок</p>
           </div>
         </div>
 
-        {user && profile && user.uid !== profile.id && profile.id !== 'mock' && (
-          <button
-            onClick={handleFollow}
-            disabled={followLoading}
-            className={`mb-6 px-8 py-2.5 rounded-2xl font-bold text-sm transition-all flex items-center gap-2 ${
-              isFollowing
-                ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600'
-                : 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90'
-            } disabled:opacity-50`}
-          >
-            {followLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : isFollowing ? (
-              <>
-                <UserMinus className="w-4 h-4" />
-                <span>отписаться</span>
-              </>
-            ) : (
-              <>
-                <UserPlus className="w-4 h-4" />
-                <span>подписаться</span>
-              </>
-            )}
-          </button>
-        )}
+        <div className="flex items-center gap-3 mb-8">
+          {user && profile && user.uid === profile.id && (
+            <Link 
+              to="/create"
+              className="px-8 py-3 rounded-2xl bg-emerald-500 text-white font-black text-sm transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20 hover:scale-105 active:scale-95"
+            >
+              <Plus className="w-4 h-4" /> создать пост
+            </Link>
+          )}
+          {user && profile && user.uid !== profile.id && profile.id !== 'mock' && !isBlocked && (
+            <>
+              <button
+                onClick={handleFollow}
+                disabled={followLoading || hasBlocked}
+                className={`px-8 py-3 rounded-2xl font-black text-sm transition-all flex items-center gap-2 shadow-lg ${
+                  isFollowing
+                    ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600'
+                    : 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:scale-105 active:scale-95'
+                } disabled:opacity-50`}
+              >
+                {followLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : isFollowing ? <><UserMinus className="w-4 h-4" /> отписаться</> : <><UserPlus className="w-4 h-4" /> подписаться</>}
+              </button>
+              
+              <button
+                onClick={handleBlock}
+                disabled={blockLoading}
+                className={`p-3 rounded-2xl font-black text-sm transition-all flex items-center gap-2 border shadow-sm ${
+                  hasBlocked
+                    ? 'bg-red-500 text-white border-red-500 hover:bg-red-600'
+                    : 'bg-white dark:bg-zinc-900 text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-red-500 hover:border-red-500'
+                } disabled:opacity-50`}
+                title={hasBlocked ? "Разблокировать" : "Заблокировать"}
+              >
+                {blockLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-5 h-5" />}
+              </button>
+            </>
+          )}
+        </div>
 
-        <p className="text-zinc-600 dark:text-zinc-400 max-w-lg">
-          {profile?.bio || "Этот пользователь не ставил себе описание("}
+        <p className="text-zinc-600 dark:text-zinc-400 max-w-xl text-lg leading-relaxed">
+          {profile?.bio || "Этот пользователь не оставил описания."}
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {articles.map((article) => (
-          <ArticleCard 
-            key={article.id} 
-            article={article} 
-          />
-        ))}
-      </div>
+      {!isBlocked && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {articles.map((article) => (
+            <ArticleCard key={article.id} article={article} />
+          ))}
+        </div>
+      )}
     </motion.div>
   );
 };
 
-const SettingsView = ({ profile, onUpdate }: { profile: Profile | null, onUpdate: () => void }) => {
+const SettingsView = ({ profile, profileLoading, profileError, onUpdate }: { profile: Profile | null, profileLoading: boolean, profileError: string | null, onUpdate: () => void }) => {
   const navigate = useNavigate();
   const [username, setUsername] = useState(profile?.username || '');
   const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url || '');
+  const [bannerUrl, setBannerUrl] = useState(profile?.banner_url || '');
   const [bio, setBio] = useState(profile?.bio || '');
+  const [email, setEmail] = useState(auth.currentUser?.email || '');
+  const [newPassword, setNewPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>([]);
+  const [activeTab, setActiveTab] = useState<'profile' | 'account' | 'blocking'>('profile');
 
   useEffect(() => {
     if (profile) {
       setUsername(profile.username);
       setAvatarUrl(profile.avatar_url || '');
+      setBannerUrl(profile.banner_url || '');
       setBio(profile.bio || '');
     }
   }, [profile]);
 
-  const handleUpdate = async (e: React.FormEvent) => {
+  useEffect(() => {
+    const fetchBlocked = async () => {
+      if (!auth.currentUser || !isSupabaseConfigured) return;
+      const { data, error } = await supabase
+        .from('blocked_users')
+        .select('*, profile:profiles!blocked_id(*)')
+        .eq('blocker_id', auth.currentUser.uid);
+      
+      if (!error && data) {
+        setBlockedUsers(data as any);
+      }
+    };
+    fetchBlocked();
+  }, []);
+
+  const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!profile || loading) return;
+    if (!profile || loading || !isSupabaseConfigured) {
+      if (!isSupabaseConfigured) setError('Supabase не настроен. Сохранение невозможно.');
+      return;
+    }
 
     setLoading(true);
     setSuccess(false);
@@ -1309,6 +1475,7 @@ const SettingsView = ({ profile, onUpdate }: { profile: Profile | null, onUpdate
         .update({
           username: username.startsWith('@') ? username : `@${username}`,
           avatar_url: avatarUrl,
+          banner_url: bannerUrl,
           bio: bio,
         })
         .eq('id', profile.id);
@@ -1326,10 +1493,91 @@ const SettingsView = ({ profile, onUpdate }: { profile: Profile | null, onUpdate
     }
   };
 
-  if (!profile && !loading) {
+  const handleUpdateAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!auth.currentUser || loading) return;
+
+    setLoading(true);
+    setSuccess(false);
+    setError(null);
+
+    try {
+      // Update Email
+      if (email !== auth.currentUser.email) {
+        const { updateEmail } = await import('firebase/auth');
+        await updateEmail(auth.currentUser, email);
+      }
+
+      // Update Password
+      if (newPassword) {
+        const { updatePassword } = await import('firebase/auth');
+        await updatePassword(auth.currentUser, newPassword);
+        setNewPassword('');
+      }
+
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+    } catch (err: any) {
+      console.error('Error updating account:', err);
+      if (err.code === 'auth/requires-recent-login') {
+        setError('Для изменения почты или пароля нужно перезайти в аккаунт');
+      } else {
+        setError(err.message || 'Ошибка при обновлении аккаунта');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUnblock = async (blockedId: string) => {
+    if (!auth.currentUser || !isSupabaseConfigured) return;
+
+    try {
+      const { error } = await supabase
+        .from('blocked_users')
+        .delete()
+        .eq('blocker_id', auth.currentUser.uid)
+        .eq('blocked_id', blockedId);
+
+      if (error) throw error;
+      setBlockedUsers(prev => prev.filter(b => b.blocked_id !== blockedId));
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  if (profileLoading && !profile) {
     return (
-      <div className="flex justify-center py-20">
+      <div className="flex flex-col items-center justify-center py-20 gap-4">
         <Loader2 className="w-8 h-8 animate-spin text-zinc-500" />
+        <p className="text-sm text-zinc-500">Загрузка настроек...</p>
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <div className="text-center py-20 px-4 dark:text-zinc-100 max-w-md mx-auto">
+        <div className="w-16 h-16 bg-red-50 dark:bg-red-900/10 rounded-full flex items-center justify-center mx-auto mb-6">
+          <AlertIcon className="w-8 h-8 text-red-500" />
+        </div>
+        <h2 className="text-2xl font-black mb-4 tracking-tight">профиль не загружен</h2>
+        <p className="text-zinc-500 dark:text-zinc-400 mb-8 text-sm leading-relaxed">
+          {profileError || 'произошла ошибка при получении данных профиля. пожалуйста, проверьте подключение к интернету или настройки базы данных.'}
+        </p>
+        <div className="flex flex-col gap-3">
+          <button 
+            onClick={onUpdate}
+            className="w-full px-6 py-3 rounded-2xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-sm font-bold shadow-lg shadow-zinc-200 dark:shadow-black/50 hover:scale-[1.02] active:scale-[0.98] transition-all"
+          >
+            попробовать снова
+          </button>
+          {!isSupabaseConfigured && (
+            <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400 mt-4">
+              совет: убедитесь, что supabase подключен в настройках проекта.
+            </p>
+          )}
+        </div>
       </div>
     );
   }
@@ -1338,119 +1586,298 @@ const SettingsView = ({ profile, onUpdate }: { profile: Profile | null, onUpdate
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="max-w-2xl mx-auto px-4 py-12"
+      className="max-w-4xl mx-auto px-4 py-12"
     >
-      <h2 className="text-3xl font-extrabold mb-8 dark:text-zinc-100 tracking-tight">настройки профиля</h2>
-      
-      <AnimatePresence>
-        {error && (
-          <motion.div 
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="mb-6 bg-red-500 text-white px-6 py-3 rounded-2xl shadow-xl flex items-center gap-3"
-          >
-            <AlertIcon className="w-5 h-5" />
-            <span className="text-sm font-bold">{error}</span>
-            <button onClick={() => setError(null)} className="ml-auto hover:opacity-70">
-              <X className="w-4 h-4" />
+      <div className="flex flex-col md:flex-row gap-8">
+        {/* Sidebar Tabs */}
+        <div className="w-full md:w-64 shrink-0 space-y-1">
+          <h2 className="text-2xl font-black mb-6 dark:text-zinc-100 tracking-tight px-4">настройки</h2>
+          {[
+            { id: 'profile', label: 'Профиль', icon: User },
+            { id: 'account', label: 'Аккаунт', icon: Shield },
+            { id: 'blocking', label: 'Блокировки', icon: Ban },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold transition-all ${
+                activeTab === tab.id
+                  ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 shadow-lg shadow-zinc-200 dark:shadow-black/50'
+                  : 'text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-100'
+              }`}
+            >
+              <tab.icon className="w-4 h-4" />
+              {tab.label}
             </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <form onSubmit={handleUpdate} className="space-y-8">
-        <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm">
-          <div className="flex items-center gap-6 mb-8 pb-8 border-b border-zinc-100 dark:border-zinc-800">
-            <div className="w-20 h-20 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center overflow-hidden shrink-0">
-              {avatarUrl ? (
-                <img src={avatarUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-              ) : (
-                <User className="w-8 h-8 text-zinc-500" />
-              )}
-            </div>
-            <div>
-              <h4 className="font-bold dark:text-zinc-100 mb-1">фото профиля</h4>
-              <p className="text-xs text-zinc-600 dark:text-zinc-400">вставьте прямую ссылку на изображение</p>
-            </div>
-          </div>
-
-          <div className="space-y-6">
-            <div>
-              <label className="block text-xs font-bold text-zinc-500 dark:text-zinc-600 uppercase tracking-widest mb-3 ml-1">
-                имя пользователя
-              </label>
-              <div className="relative">
-                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  required
-                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-11 py-3 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 transition-colors dark:text-zinc-100"
-                  placeholder="@username"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-zinc-500 dark:text-zinc-600 uppercase tracking-widest mb-3 ml-1">
-                ссылка на аватар
-              </label>
-              <div className="relative">
-                <Camera className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                <input
-                  type="url"
-                  value={avatarUrl}
-                  onChange={(e) => setAvatarUrl(e.target.value)}
-                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-11 py-3 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 transition-colors dark:text-zinc-100"
-                  placeholder="https://example.com/avatar.jpg"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-zinc-400 dark:text-zinc-600 uppercase tracking-widest mb-3 ml-1">
-                о себе
-              </label>
-              <div className="relative">
-                <FileText className="absolute left-4 top-4 w-4 h-4 text-zinc-400" />
-                <textarea
-                  value={bio}
-                  onChange={(e) => setBio(e.target.value)}
-                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-11 py-3 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 transition-colors dark:text-zinc-100 min-h-[100px] resize-none"
-                  placeholder="расскажите о себе..."
-                />
-              </div>
-            </div>
-          </div>
+          ))}
         </div>
 
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex-1">
-            <AnimatePresence>
-              {success && (
-                <motion.div
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  className="text-emerald-500 text-sm font-bold flex items-center gap-2"
-                >
-                  <Check className="w-4 h-4" /> изменения сохранены
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="px-8 py-3 rounded-2xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2"
-          >
-            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-            сохранить изменения
-          </button>
+        {/* Content Area */}
+        <div className="flex-1">
+          <AnimatePresence mode="wait">
+            {error && (
+              <motion.div 
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="mb-6 bg-red-500 text-white px-6 py-3 rounded-2xl shadow-xl flex items-center gap-3"
+              >
+                <AlertIcon className="w-5 h-5" />
+                <span className="text-sm font-bold">{error}</span>
+                <button onClick={() => setError(null)} className="ml-auto hover:opacity-70">
+                  <X className="w-4 h-4" />
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {activeTab === 'profile' && (
+            <motion.div
+              key="profile"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+            >
+              <form onSubmit={handleUpdateProfile} className="space-y-6">
+                <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm">
+                  {/* Banner Preview */}
+                  <div className="relative h-32 w-full rounded-2xl bg-zinc-100 dark:bg-zinc-800 mb-12 overflow-hidden border border-zinc-200 dark:border-zinc-700">
+                    {bannerUrl ? (
+                      <img src={bannerUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-zinc-400">
+                        <ImageIcon className="w-8 h-8" />
+                      </div>
+                    )}
+                    <div className="absolute -bottom-8 left-8">
+                      <div className="w-20 h-20 rounded-full bg-white dark:bg-zinc-900 p-1">
+                        <div className="w-full h-full rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center overflow-hidden">
+                          {avatarUrl ? (
+                            <img src={avatarUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            <User className="w-8 h-8 text-zinc-500" />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1">
+                          имя пользователя
+                        </label>
+                        <div className="relative">
+                          <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                          <input
+                            type="text"
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                            required
+                            className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-11 py-3 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 transition-colors dark:text-zinc-100"
+                            placeholder="@username"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1">
+                          ссылка на аватар
+                        </label>
+                        <div className="relative">
+                          <Camera className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                          <input
+                            type="url"
+                            value={avatarUrl}
+                            onChange={(e) => setAvatarUrl(e.target.value)}
+                            className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-11 py-3 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 transition-colors dark:text-zinc-100"
+                            placeholder="https://example.com/avatar.jpg"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1">
+                        ссылка на баннер
+                      </label>
+                      <div className="relative">
+                        <ImageIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                        <input
+                          type="url"
+                          value={bannerUrl}
+                          onChange={(e) => setBannerUrl(e.target.value)}
+                          className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-11 py-3 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 transition-colors dark:text-zinc-100"
+                          placeholder="https://example.com/banner.jpg"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1">
+                        о себе
+                      </label>
+                      <div className="relative">
+                        <FileText className="absolute left-4 top-4 w-4 h-4 text-zinc-400" />
+                        <textarea
+                          value={bio}
+                          onChange={(e) => setBio(e.target.value)}
+                          className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-11 py-3 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 transition-colors dark:text-zinc-100 min-h-[120px] resize-none"
+                          placeholder="расскажите о себе..."
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-4">
+                  <AnimatePresence>
+                    {success && (
+                      <motion.div
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 20 }}
+                        className="text-emerald-500 text-sm font-bold flex items-center gap-2"
+                      >
+                        <Check className="w-4 h-4" /> сохранено
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="px-8 py-3 rounded-2xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                    сохранить профиль
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          )}
+
+          {activeTab === 'account' && (
+            <motion.div
+              key="account"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+            >
+              <form onSubmit={handleUpdateAccount} className="space-y-6">
+                <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm">
+                  <h3 className="text-lg font-black mb-6 dark:text-zinc-100 tracking-tight">управление аккаунтом</h3>
+                  
+                  <div className="space-y-6">
+                    <div>
+                      <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1">
+                        электронная почта
+                      </label>
+                      <div className="relative">
+                        <Globe className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                        <input
+                          type="email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          required
+                          className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-11 py-3 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 transition-colors dark:text-zinc-100"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1">
+                        новый пароль (оставьте пустым, если не хотите менять)
+                      </label>
+                      <div className="relative">
+                        <Shield className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                        <input
+                          type="password"
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-11 py-3 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 transition-colors dark:text-zinc-100"
+                          placeholder="••••••••"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-4">
+                  <AnimatePresence>
+                    {success && (
+                      <motion.div
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 20 }}
+                        className="text-emerald-500 text-sm font-bold flex items-center gap-2"
+                      >
+                        <Check className="w-4 h-4" /> обновлено
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="px-8 py-3 rounded-2xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                    обновить данные
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          )}
+
+          {activeTab === 'blocking' && (
+            <motion.div
+              key="blocking"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="space-y-6"
+            >
+              <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm">
+                <h3 className="text-lg font-black mb-6 dark:text-zinc-100 tracking-tight">заблокированные пользователи</h3>
+                
+                {blockedUsers.length > 0 ? (
+                  <div className="space-y-4">
+                    {blockedUsers.map((blocked) => (
+                      <div key={blocked.blocked_id} className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-800/50 rounded-2xl border border-zinc-100 dark:border-zinc-700">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-zinc-200 dark:bg-zinc-700 overflow-hidden">
+                            {blocked.profile?.avatar_url ? (
+                              <img src={blocked.profile.avatar_url} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <User className="w-full h-full p-2 text-zinc-500" />
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold dark:text-zinc-100">{blocked.profile?.username || 'Пользователь'}</p>
+                            <p className="text-[10px] text-zinc-500 uppercase tracking-widest">заблокирован {new Date(blocked.created_at).toLocaleDateString()}</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleUnblock(blocked.blocked_id)}
+                          className="px-4 py-2 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-600 text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                        >
+                          разблокировать
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-12">
+                    <div className="w-16 h-16 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center mx-auto mb-4">
+                      <Ban className="w-8 h-8 text-zinc-400" />
+                    </div>
+                    <p className="text-sm text-zinc-500 dark:text-zinc-400">у вас нет заблокированных пользователей</p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
         </div>
-      </form>
+      </div>
 
       <div className="mt-12 flex justify-center group/admin">
         <button
@@ -1466,14 +1893,27 @@ const SettingsView = ({ profile, onUpdate }: { profile: Profile | null, onUpdate
   );
 };
 
-const HomeView = () => {
+const HomeView = ({ user }: { user: any | null }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('все');
   const [selectedAuthor, setSelectedAuthor] = useState('все');
   const [dateRange, setDateRange] = useState('все');
   const [showFilters, setShowFilters] = useState(false);
-  const [articles, setArticles] = useState<Article[]>(MOCK_ARTICLES);
+  const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
+  const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    const fetchBlocked = async () => {
+      if (!user) return;
+      const { data } = await supabase
+        .from('blocked_users')
+        .select('blocked_id')
+        .eq('blocker_id', user.uid);
+      if (data) setBlockedUserIds(data.map(b => b.blocked_id));
+    };
+    fetchBlocked();
+  }, [user]);
 
   useEffect(() => {
     const fetchArticles = async () => {
@@ -1482,29 +1922,30 @@ const HomeView = () => {
         return;
       }
 
-      const { data, error } = await supabase
-        .from('articles')
-        .select('*, profiles!inner(id, badge, is_verified, is_banned)')
-        .eq('is_draft', false)
-        .eq('profiles.is_banned', false)
-        .order('created_at', { ascending: false });
+        const { data, error } = await supabase
+          .from('articles')
+          .select('*, profiles!inner(id, badge, is_verified, is_banned, username, avatar_url)')
+          .eq('is_draft', false)
+          .eq('profiles.is_banned', false)
+          .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Error fetching articles:', error);
-      } else if (data) {
-        const mappedArticles = data.map(a => ({
-          ...a,
-          author_badge: (a.profiles as any)?.badge || a.author_badge,
-          author_is_verified: (a.profiles as any)?.is_verified
-        }));
-        setArticles([...mappedArticles, ...MOCK_ARTICLES]);
-      }
+        if (error) {
+          console.error('Error fetching articles:', error);
+        } else if (data) {
+          const mappedArticles = data.map(a => ({
+            ...a,
+            author: (a.profiles as any)?.username || a.author,
+            author_badge: (a.profiles as any)?.badge || a.author_badge,
+            author_is_verified: (a.profiles as any)?.is_verified,
+            author_profile: a.profiles as any
+          }));
+          setArticles([...mappedArticles, ...MOCK_ARTICLES]);
+        }
       setLoading(false);
     };
 
     fetchArticles();
 
-    // Subscribe to articles changes for real-time views/likes
     const subscription = supabase
       .channel('articles-realtime')
       .on('postgres_changes', { 
@@ -1521,10 +1962,10 @@ const HomeView = () => {
     };
   }, []);
 
-  const authors = Array.from(new Set(articles.map(a => a.author)));
-  const categories = ['все', 'Новости', 'Инструкции', 'Технологии', 'Обзоры'];
-
   const filteredArticles = articles.filter(article => {
+    // Filter blocked users
+    if (blockedUserIds.includes(article.author_id || '')) return false;
+
     const matchesSearch = 
       article.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       article.excerpt.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -1558,6 +1999,9 @@ const HomeView = () => {
     setSelectedAuthor('все');
     setDateRange('все');
   };
+
+  const categories = ['все', ...Array.from(new Set(articles.map(a => a.category)))];
+  const authors = Array.from(new Set(articles.map(a => a.author)));
 
   return (
     <motion.div
@@ -3063,6 +3507,8 @@ export default function App() {
   });
   const [user, setUser] = useState<any | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isDark) {
@@ -3078,34 +3524,61 @@ export default function App() {
 
   useEffect(() => {
     // Listen for auth changes in Firebase
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onIdTokenChanged(auth, (firebaseUser) => {
       if (firebaseUser && firebaseUser.emailVerified) {
         setUser(firebaseUser);
-        fetchProfile(firebaseUser.uid);
+        fetchProfile(firebaseUser);
       } else {
         setUser(null);
         setProfile(null);
+        setProfileLoading(false);
       }
     });
 
     return () => unsubscribe();
   }, []);
 
-  const fetchProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-    
-    if (error) {
-      if (error.code === 'PGRST116') {
-        // Profile doesn't exist, create one (likely Google OAuth first login or Email confirmation)
-        const { data: userData } = await supabase.auth.getUser();
-        if (userData?.user) {
-          const email = userData.user.email;
-          const metadataUsername = userData.user.user_metadata?.username;
-          const username = metadataUsername || (email ? `@${email.split('@')[0]}` : `@user_${userId.slice(0, 5)}`);
+  const fetchProfile = async (userOrId: FirebaseUser | string) => {
+    const userId = typeof userOrId === 'string' ? userOrId : userOrId.uid;
+    setProfileLoading(true);
+    setProfileError(null);
+
+    if (!isSupabaseConfigured) {
+      // Mock profile for demo mode
+      setProfile({
+        id: userId,
+        username: typeof userOrId !== 'string' ? userOrId.displayName || 'Demo User' : 'Demo User',
+        avatar_url: typeof userOrId !== 'string' ? userOrId.photoURL || '' : '',
+        banner_url: '',
+        bio: 'Это демо-профиль. Подключите Supabase для сохранения данных.',
+        created_at: new Date().toISOString()
+      });
+      setProfileLoading(false);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // Profile doesn't exist, create one
+          let email = '';
+          let displayName = '';
+          
+          if (typeof userOrId !== 'string') {
+            email = userOrId.email || '';
+            displayName = userOrId.displayName || '';
+          } else if (user) {
+            email = user.email || '';
+            displayName = user.displayName || '';
+          }
+
+          const username = displayName || (email ? `@${email.split('@')[0]}` : `@user_${userId.slice(0, 8)}`);
           
           const { data: newProfile, error: createError } = await supabase
             .from('profiles')
@@ -3115,22 +3588,41 @@ export default function App() {
           
           if (createError) {
             console.error('Error creating profile for new user:', createError);
+            setProfileError('Ошибка при создании профиля. Пожалуйста, убедитесь, что таблица profiles создана в Supabase.');
           } else {
             setProfile(newProfile);
           }
+        } else {
+          console.error('Error fetching profile:', error);
+          setProfileError(`Ошибка при получении профиля: ${error.message}`);
+          
+          // Fallback to basic info so the app doesn't break completely
+          if (typeof userOrId !== 'string') {
+            setProfile({
+              id: userId,
+              username: userOrId.displayName || `@user_${userId.slice(0, 8)}`,
+              avatar_url: userOrId.photoURL || '',
+              banner_url: '',
+              bio: 'Профиль загружен в ограниченном режиме из-за ошибки базы данных.',
+              created_at: new Date().toISOString()
+            });
+          }
         }
       } else {
-        console.error('Error fetching profile:', error);
+        setProfile(data);
+        // Check if user is banned
+        if (data?.is_banned) {
+          console.warn('User is banned, logging out...');
+          await auth.signOut();
+          setUser(null);
+          setProfile(null);
+        }
       }
-    } else {
-      setProfile(data);
-      // Check if user is banned
-      if (data?.is_banned) {
-        console.warn('User is banned, logging out...');
-        await auth.signOut();
-        setUser(null);
-        setProfile(null);
-      }
+    } catch (err: any) {
+      console.error('Unexpected error in fetchProfile:', err);
+      setProfileError(err.message || 'Произошла непредвиденная ошибка');
+    } finally {
+      setProfileLoading(false);
     }
   };
 
@@ -3163,12 +3655,12 @@ export default function App() {
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <AnimatePresence mode="wait">
             <Routes>
-              <Route path="/" element={<HomeView />} />
+              <Route path="/" element={<HomeView user={user} />} />
               <Route path="/article/:id" element={<ArticleDetail user={user} />} />
               <Route path="/profile/:author" element={<ProfileView user={user} />} />
               <Route path="/create" element={user ? <ArticleEditor user={user} profile={profile} /> : <Navigate to="/auth" />} />
               <Route path="/edit/:id" element={user ? <ArticleEditor user={user} profile={profile} /> : <Navigate to="/auth" />} />
-              <Route path="/settings" element={user ? <SettingsView profile={profile} onUpdate={() => fetchProfile(user.uid)} /> : <Navigate to="/auth" />} />
+              <Route path="/settings" element={user ? <SettingsView profile={profile} profileLoading={profileLoading} profileError={profileError} onUpdate={() => fetchProfile(user)} /> : <Navigate to="/auth" />} />
               <Route path="/admin" element={<AdminView />} />
               <Route path="/terms" element={<TermsView />} />
               <Route path="/auth" element={user ? <Navigate to="/" /> : <Auth />} />

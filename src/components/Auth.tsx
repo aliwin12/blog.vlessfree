@@ -47,59 +47,30 @@ export const Auth = () => {
         
         setSuccess('Ссылка для подтверждения отправлена на вашу почту!');
       } else {
-        // Try Firebase first
-        try {
-          const userCredential = await signInWithEmailAndPassword(auth, email, password);
-          const user = userCredential.user;
-          
-          if (!user.emailVerified) {
-            setError('Пожалуйста, подтвердите вашу почту перед входом. Проверьте папку "Спам".');
-            return;
-          }
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+        
+        // Reload user to get latest verification status
+        await user.reload();
+        
+        if (!user.emailVerified) {
+          setError('Пожалуйста, подтвердите вашу почту перед входом. Проверьте папку "Спам".');
+          return;
+        }
 
-          // Check ban status in Supabase using Firebase UID
-          const { data: pData } = await supabase
-            .from('profiles')
-            .select('is_banned')
-            .eq('id', user.uid)
-            .single();
-          
-          if (pData?.is_banned) {
-            await auth.signOut();
-            throw new Error('Ваш аккаунт заблокирован. Доступ запрещен.');
-          }
-        } catch (firebaseErr: any) {
-          // If Firebase fails, try Supabase (for existing accounts)
-          if (firebaseErr.code === 'auth/user-not-found' || firebaseErr.code === 'auth/invalid-credential') {
-            const { data: supabaseData, error: supabaseErr } = await supabase.auth.signInWithPassword({
-              email,
-              password,
-            });
+        // Force token refresh to trigger App.tsx listener
+        await user.getIdToken(true);
 
-            if (supabaseErr) {
-              // If both fail, throw the Firebase error (or a generic one)
-              throw firebaseErr;
-            }
-
-            if (supabaseData.user) {
-              // Supabase login success
-              // Check ban status
-              const { data: pData } = await supabase
-                .from('profiles')
-                .select('is_banned')
-                .eq('id', supabaseData.user.id)
-                .single();
-              
-              if (pData?.is_banned) {
-                await supabase.auth.signOut();
-                throw new Error('Ваш аккаунт заблокирован. Доступ запрещен.');
-              }
-              
-              navigate('/');
-              return;
-            }
-          }
-          throw firebaseErr;
+        // Check ban status in Supabase using Firebase UID
+        const { data: pData } = await supabase
+          .from('profiles')
+          .select('is_banned')
+          .eq('id', user.uid)
+          .single();
+        
+        if (pData?.is_banned) {
+          await auth.signOut();
+          throw new Error('Ваш аккаунт заблокирован. Доступ запрещен.');
         }
       }
     } catch (err: any) {
@@ -146,9 +117,10 @@ export const Auth = () => {
       if (auth.currentUser) {
         await auth.currentUser.reload();
         if (auth.currentUser.emailVerified) {
-          setSuccess('Почта подтверждена! Теперь вы можете войти.');
-          // Optional: automatically login or redirect
-          navigate('/');
+          // Force token refresh to trigger App.tsx listener
+          await auth.currentUser.getIdToken(true);
+          setSuccess('Почта подтверждена! Перенаправляем...');
+          setTimeout(() => navigate('/'), 1000);
         } else {
           setError('Почта все еще не подтверждена. Пожалуйста, проверьте ваш почтовый ящик.');
         }

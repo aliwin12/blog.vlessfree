@@ -17,12 +17,14 @@ export interface Article {
   dislikes_count?: number;
   views_count?: number;
   author_is_verified?: boolean;
+  author_profile?: Profile;
 }
 
 export interface Profile {
   id: string;
   username: string;
   avatar_url?: string;
+  banner_url?: string;
   bio?: string;
   created_at: string;
   is_banned?: boolean;
@@ -30,6 +32,13 @@ export interface Profile {
   following_count?: number;
   badge?: string;
   is_verified?: boolean;
+}
+
+export interface BlockedUser {
+  blocker_id: string;
+  blocked_id: string;
+  created_at: string;
+  profile?: Profile;
 }
 
 export interface Follow {
