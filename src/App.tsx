@@ -3055,11 +3055,12 @@ export default function App() {
     
     if (error) {
       if (error.code === 'PGRST116') {
-        // Profile doesn't exist, create one (likely Google OAuth first login)
+        // Profile doesn't exist, create one (likely Google OAuth first login or Email confirmation)
         const { data: userData } = await supabase.auth.getUser();
         if (userData?.user) {
           const email = userData.user.email;
-          const username = email ? `@${email.split('@')[0]}` : `@user_${userId.slice(0, 5)}`;
+          const metadataUsername = userData.user.user_metadata?.username;
+          const username = metadataUsername || (email ? `@${email.split('@')[0]}` : `@user_${userId.slice(0, 5)}`);
           
           const { data: newProfile, error: createError } = await supabase
             .from('profiles')

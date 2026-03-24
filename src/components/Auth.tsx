@@ -28,29 +28,28 @@ export const Auth = () => {
         const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
+          options: {
+            data: {
+              username: username.startsWith('@') ? username : `@${username}`,
+            }
+          }
         });
         if (signUpError) throw signUpError;
         
-        if (signUpData.user) {
-          const { error: profileError } = await supabase.from('profiles').insert([
-            {
-              id: signUpData.user.id,
-              username: username.startsWith('@') ? username : `@${username}`,
-            }
-          ]);
-          if (profileError) {
-            console.error('Error creating profile:', profileError);
-            // We don't throw here to allow sign up to complete even if profile fails
-          }
-        }
-        
-        setSuccess('Проверьте вашу почту для подтверждения регистрации!');
+        setSuccess('Ссылка для подтверждения отправлена на вашу почту!');
       } else {
         const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
-        if (signInError) throw signInError;
+        
+        if (signInError) {
+          if (signInError.message.includes('Email not confirmed')) {
+            setError('Пожалуйста, подтвердите вашу почту перед входом. Проверьте папку "Спам".');
+            return;
+          }
+          throw signInError;
+        }
 
         if (signInData.user) {
           const { data: pData } = await supabase
@@ -68,6 +67,25 @@ export const Auth = () => {
     } catch (err: any) {
       console.error('Auth error:', err);
       setError(err.message || 'Произошла ошибка при авторизации');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendConfirmation = async () => {
+    if (!email || loading) return;
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email,
+      });
+      if (error) throw error;
+      setSuccess('Новая ссылка для подтверждения отправлена!');
+    } catch (err: any) {
+      setError(err.message || 'Ошибка при повторной отправке');
     } finally {
       setLoading(false);
     }
@@ -222,9 +240,20 @@ export const Auth = () => {
                 </div>
 
                 {error && (
-                  <div className="text-red-500 text-xs font-medium px-1 flex items-center gap-2">
-                    <AlertCircle className="w-3 h-3" />
-                    {error}
+                  <div className="space-y-2">
+                    <div className="text-red-500 text-xs font-medium px-1 flex items-center gap-2">
+                      <AlertCircle className="w-3 h-3" />
+                      {error}
+                    </div>
+                    {error.includes('подтвердите вашу почту') && (
+                      <button
+                        type="button"
+                        onClick={handleResendConfirmation}
+                        className="text-[10px] text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 font-bold uppercase tracking-widest ml-1 underline underline-offset-4"
+                      >
+                        отправить ссылку повторно
+                      </button>
+                    )}
                   </div>
                 )}
 
