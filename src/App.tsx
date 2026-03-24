@@ -27,6 +27,8 @@ import {
   Search,
   MessageSquare,
   Loader2,
+  AlertCircle,
+  CheckCircle2,
   AlertCircle as AlertIcon,
   Settings,
   Trash2,
@@ -63,12 +65,13 @@ import {
 import Markdown from 'react-markdown';
 import { Article, MOCK_ARTICLES, Comment, Profile } from './types';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
+import { auth } from './lib/firebase';
+import { onAuthStateChanged, User as FirebaseUser, signOut } from 'firebase/auth';
 import { Auth } from './components/Auth';
-import { User as SupabaseUser } from '@supabase/supabase-js';
 
-const Navbar = ({ isDark, toggleDark, user, profile }: { isDark: boolean, toggleDark: () => void, user: SupabaseUser | null, profile: Profile | null }) => {
+const Navbar = ({ isDark, toggleDark, user, profile }: { isDark: boolean, toggleDark: () => void, user: FirebaseUser | null, profile: Profile | null }) => {
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await signOut(auth);
   };
 
   return (
@@ -109,7 +112,7 @@ const Navbar = ({ isDark, toggleDark, user, profile }: { isDark: boolean, toggle
 
                 <div className="flex items-center gap-1">
                   <Link 
-                    to={`/profile/${user.id}`}
+                    to={`/profile/${user.uid}`}
                     className="p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-400"
                     title="Мой профиль"
                   >
@@ -221,7 +224,7 @@ const ArticleCard = ({ article }: { article: Article }) => (
   </motion.div>
 );
 
-const CommentSection = ({ articleId, user }: { articleId: string, user: SupabaseUser | null }) => {
+const CommentSection = ({ articleId, user }: { articleId: string, user: FirebaseUser | null }) => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [loading, setLoading] = useState(false);
@@ -321,7 +324,7 @@ const CommentSection = ({ articleId, user }: { articleId: string, user: Supabase
     const { error } = await supabase.from('comments').insert([
       {
         article_id: articleId,
-        user_id: user.id,
+        user_id: user.uid,
         content: newComment.trim(),
       }
     ]);
@@ -414,7 +417,7 @@ const CommentSection = ({ articleId, user }: { articleId: string, user: Supabase
                       {new Date(comment.created_at).toLocaleDateString('ru-RU')}
                     </span>
                   </div>
-                  {user?.id === comment.user_id && (
+                  {user?.uid === comment.user_id && (
                     <button 
                       onClick={() => handleDelete(comment.id)}
                       disabled={deletingId === comment.id}
@@ -443,7 +446,7 @@ const CommentSection = ({ articleId, user }: { articleId: string, user: Supabase
   );
 };
 
-const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
+const ArticleDetail = ({ user }: { user: FirebaseUser | null }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [article, setArticle] = useState<Article | null>(null);
@@ -486,7 +489,7 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
           .single();
         
         if (data) {
-          if (data.is_draft && (!user || data.author_id !== user.id)) {
+          if (data.is_draft && (!user || data.author_id !== user.uid)) {
             setArticle(null);
           } else {
             setArticle(data);
@@ -533,12 +536,12 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
                   .from('article_reactions')
                   .select('type')
                   .eq('article_id', id)
-                  .eq('user_id', user.id)
+                  .eq('user_id', user.uid)
                   .maybeSingle(),
                 data.author_id ? supabase
                   .from('follows')
                   .select('*')
-                  .eq('follower_id', user.id)
+                  .eq('follower_id', user.uid)
                   .eq('following_id', data.author_id)
                   .maybeSingle() : Promise.resolve({ data: null })
               ]);
@@ -560,7 +563,7 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
   }, [id, user]);
 
   const handleFollowAuthor = async () => {
-    if (!user || !article || !article.author_id || !isSupabaseConfigured || followLoading || user.id === article.author_id) return;
+    if (!user || !article || !article.author_id || !isSupabaseConfigured || followLoading || user.uid === article.author_id) return;
 
     setFollowLoading(true);
     try {
@@ -568,7 +571,7 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
         const { error } = await supabase
           .from('follows')
           .delete()
-          .eq('follower_id', user.id)
+          .eq('follower_id', user.uid)
           .eq('following_id', article.author_id);
         
         if (error) throw error;
@@ -576,7 +579,7 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
       } else {
         const { error } = await supabase
           .from('follows')
-          .insert([{ follower_id: user.id, following_id: article.author_id }]);
+          .insert([{ follower_id: user.uid, following_id: article.author_id }]);
         
         if (error) throw error;
         setIsFollowingAuthor(true);
@@ -599,7 +602,7 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
           .from('article_reactions')
           .delete()
           .eq('article_id', id)
-          .eq('user_id', user.id);
+          .eq('user_id', user.uid);
         
         if (error) throw error;
         
@@ -612,7 +615,7 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
           .from('article_reactions')
           .upsert({
             article_id: id,
-            user_id: user.id,
+            user_id: user.uid,
             type: type
           }, { onConflict: 'article_id,user_id' });
         
@@ -740,7 +743,7 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
           <span className="text-sm font-medium">назад</span>
         </button>
 
-        {user?.id === article.author_id && (
+        {user?.uid === article.author_id && (
           <div className="flex items-center gap-3">
             <Link 
               to={`/edit/${article.id}`}
@@ -855,7 +858,7 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
               </div>
             </Link>
 
-            {user && article.author_id && user.id !== article.author_id && (
+            {user && article.author_id && user.uid !== article.author_id && (
               <button
                 onClick={handleFollowAuthor}
                 disabled={followLoading}
@@ -972,7 +975,7 @@ const ArticleDetail = ({ user }: { user: SupabaseUser | null }) => {
   );
 };
 
-const ProfileView = ({ user }: { user: SupabaseUser | null }) => {
+const ProfileView = ({ user }: { user: FirebaseUser | null }) => {
   const { author } = useParams();
   const navigate = useNavigate();
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -1012,11 +1015,11 @@ const ProfileView = ({ user }: { user: SupabaseUser | null }) => {
           setFollowingCount(profileData.following_count || 0);
 
           // Check if current user is following this profile
-          if (user && user.id !== profileData.id) {
+          if (user && user.uid !== profileData.id) {
             const { data: followData } = await supabase
               .from('follows')
               .select('*')
-              .eq('follower_id', user.id)
+              .eq('follower_id', user.uid)
               .eq('following_id', profileData.id)
               .maybeSingle();
             
@@ -1042,7 +1045,7 @@ const ProfileView = ({ user }: { user: SupabaseUser | null }) => {
             .or(`author_id.eq.${authorId},author.eq.${authorName}`)
             .order('created_at', { ascending: false });
           
-          if (user?.id !== authorId) {
+          if (user?.uid !== authorId) {
             query = query.eq('is_draft', false);
           }
 
@@ -1102,7 +1105,7 @@ const ProfileView = ({ user }: { user: SupabaseUser | null }) => {
   }, [author, user]);
 
   const handleFollow = async () => {
-    if (!user || !profile || profile.id === 'mock' || !isSupabaseConfigured || followLoading || user.id === profile.id) return;
+    if (!user || !profile || profile.id === 'mock' || !isSupabaseConfigured || followLoading || user.uid === profile.id) return;
 
     setFollowLoading(true);
     try {
@@ -1110,7 +1113,7 @@ const ProfileView = ({ user }: { user: SupabaseUser | null }) => {
         const { error } = await supabase
           .from('follows')
           .delete()
-          .eq('follower_id', user.id)
+          .eq('follower_id', user.uid)
           .eq('following_id', profile.id);
         
         if (error) throw error;
@@ -1119,7 +1122,7 @@ const ProfileView = ({ user }: { user: SupabaseUser | null }) => {
       } else {
         const { error } = await supabase
           .from('follows')
-          .insert([{ follower_id: user.id, following_id: profile.id }]);
+          .insert([{ follower_id: user.uid, following_id: profile.id }]);
         
         if (error) throw error;
         setIsFollowing(true);
@@ -1129,7 +1132,7 @@ const ProfileView = ({ user }: { user: SupabaseUser | null }) => {
       // Update counts
       await Promise.all([
         supabase.rpc('increment_followers', { profile_id: profile.id, increment: isFollowing ? -1 : 1 }),
-        supabase.rpc('increment_following', { profile_id: user.id, increment: isFollowing ? -1 : 1 })
+        supabase.rpc('increment_following', { profile_id: user.uid, increment: isFollowing ? -1 : 1 })
       ]).catch(() => {
         // Fallback if RPCs are not defined
         supabase.from('profiles').update({ followers_count: isFollowing ? followersCount - 1 : followersCount + 1 }).eq('id', profile.id);
@@ -1233,7 +1236,7 @@ const ProfileView = ({ user }: { user: SupabaseUser | null }) => {
           </div>
         </div>
 
-        {user && profile && user.id !== profile.id && profile.id !== 'mock' && (
+        {user && profile && user.uid !== profile.id && profile.id !== 'mock' && (
           <button
             onClick={handleFollow}
             disabled={followLoading}
@@ -1276,7 +1279,7 @@ const ProfileView = ({ user }: { user: SupabaseUser | null }) => {
   );
 };
 
-const SettingsView = ({ profile, onUpdate }: { profile: Profile | null, onUpdate: () => void }) => {
+const SettingsView = ({ profile, user, onUpdate }: { profile: Profile | null, user: FirebaseUser | null, onUpdate: () => void }) => {
   const navigate = useNavigate();
   const [username, setUsername] = useState(profile?.username || '');
   const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url || '');
@@ -1284,6 +1287,21 @@ const SettingsView = ({ profile, onUpdate }: { profile: Profile | null, onUpdate
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
+
+  const handleResendVerification = async () => {
+    if (!user || resending) return;
+    setResending(true);
+    try {
+      await sendEmailVerification(user);
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Ошибка при отправке письма');
+    } finally {
+      setResending(false);
+    }
+  };
 
   useEffect(() => {
     if (profile) {
@@ -1374,6 +1392,56 @@ const SettingsView = ({ profile, onUpdate }: { profile: Profile | null, onUpdate
           </div>
 
           <div className="space-y-6">
+            <div className="p-6 rounded-2xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-100 dark:border-zinc-800">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${user?.emailVerified ? 'bg-emerald-100 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400' : 'bg-amber-100 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400'}`}>
+                    {user?.emailVerified ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold dark:text-zinc-100">статус аккаунта</h4>
+                    <p className="text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-widest font-bold">
+                      {user?.emailVerified ? 'подтвержден' : 'не подтвержден'}
+                    </p>
+                  </div>
+                </div>
+                {!user?.emailVerified && (
+                  <button
+                    type="button"
+                    onClick={handleResendVerification}
+                    disabled={resending}
+                    className="text-[10px] font-black uppercase tracking-widest text-zinc-900 dark:text-zinc-100 underline underline-offset-4 hover:opacity-70 transition-opacity disabled:opacity-50"
+                  >
+                    {resending ? 'отправка...' : 'подтвердить почту'}
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                {user?.emailVerified 
+                  ? 'ваша почта подтверждена. это обеспечивает безопасность вашего аккаунта.' 
+                  : 'пожалуйста, подтвердите вашу почту, чтобы получить полный доступ к функциям сайта.'}
+              </p>
+            </div>
+
+            <div className="p-6 rounded-2xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-100 dark:border-zinc-800">
+              <div className="flex items-center gap-3 mb-4">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${profile?.is_verified ? 'bg-blue-100 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-400'}`}>
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold dark:text-zinc-100">статус верификации</h4>
+                  <p className="text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-widest font-bold">
+                    {profile?.is_verified ? 'верифицирован' : 'обычный профиль'}
+                  </p>
+                </div>
+              </div>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                {profile?.is_verified 
+                  ? 'ваш профиль верифицирован. вы получили синюю галочку и доверие сообщества.' 
+                  : 'синяя галочка выдается активным авторам и экспертам сообщества. пишите качественные статьи, чтобы получить её.'}
+              </p>
+            </div>
+
             <div>
               <label className="block text-xs font-bold text-zinc-500 dark:text-zinc-600 uppercase tracking-widest mb-3 ml-1">
                 имя пользователя
@@ -1715,7 +1783,7 @@ const HomeView = () => {
   );
 };
 
-const ArticleEditor = ({ user, profile }: { user: SupabaseUser | null, profile: Profile | null }) => {
+const ArticleEditor = ({ user, profile }: { user: FirebaseUser | null, profile: Profile | null }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [title, setTitle] = useState('');
@@ -1738,7 +1806,7 @@ const ArticleEditor = ({ user, profile }: { user: SupabaseUser | null, profile: 
           .single();
         
         if (data) {
-          if (user && data.author_id !== user.id) {
+          if (user && data.author_id !== user.uid) {
             setError('Вы не можете редактировать чужую статью');
             setTimeout(() => navigate('/'), 2000);
             return;
@@ -1794,7 +1862,7 @@ const ArticleEditor = ({ user, profile }: { user: SupabaseUser | null, profile: 
         console.error('Error updating article:', error);
         setError(`Ошибка при обновлении статьи: ${error.message}`);
       } else {
-        navigate(isDraft ? `/profile/${user.id}` : `/article/${id}`);
+        navigate(isDraft ? `/profile/${user.uid}` : `/article/${id}`);
       }
     } else {
       // Insert
@@ -1802,7 +1870,7 @@ const ArticleEditor = ({ user, profile }: { user: SupabaseUser | null, profile: 
         {
           ...articleData,
           author: profile.username,
-          author_id: user.id,
+          author_id: user.uid,
           date: new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }),
           edit_count: 0,
           is_draft: isDraft
@@ -1813,7 +1881,7 @@ const ArticleEditor = ({ user, profile }: { user: SupabaseUser | null, profile: 
         console.error('Error creating article:', error);
         setError(`Ошибка при создании статьи: ${error.message}`);
       } else {
-        navigate(isDraft ? `/profile/${user.id}` : '/');
+        navigate(isDraft ? `/profile/${user.uid}` : '/');
       }
     }
     setLoading(false);
@@ -2050,9 +2118,10 @@ const AdminView = () => {
   }, [toast]);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      setCurrentUser(data.user);
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
     });
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -2147,7 +2216,7 @@ const AdminView = () => {
             У этого аккаунта нет прав администратора в базе данных.
           </p>
           <button 
-            onClick={() => supabase.auth.signOut().then(() => navigate('/auth'))}
+            onClick={() => signOut(auth).then(() => navigate('/auth'))}
             className="w-full py-3 rounded-2xl bg-red-600 text-white font-bold"
           >
             Выйти и зайти под админом
@@ -3007,7 +3076,7 @@ export default function App() {
     const saved = localStorage.getItem('theme');
     return saved ? saved === 'dark' : true;
   });
-  const [user, setUser] = useState<SupabaseUser | null>(null);
+  const [user, setUser] = useState<FirebaseUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
 
   useEffect(() => {
@@ -3023,27 +3092,21 @@ export default function App() {
   }, [isDark]);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
-
-    // Check current session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
-      }
-    });
-
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      if (firebaseUser) {
+        if (firebaseUser.emailVerified || firebaseUser.providerData.some(p => p.providerId === 'google.com')) {
+          fetchProfile(firebaseUser.uid);
+        } else {
+          setProfile(null);
+        }
       } else {
         setProfile(null);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => unsubscribe();
   }, []);
 
   const fetchProfile = async (userId: string) => {
@@ -3056,10 +3119,10 @@ export default function App() {
     if (error) {
       if (error.code === 'PGRST116') {
         // Profile doesn't exist, create one (likely Google OAuth first login or Email confirmation)
-        const { data: userData } = await supabase.auth.getUser();
-        if (userData?.user) {
-          const email = userData.user.email;
-          const metadataUsername = userData.user.user_metadata?.username;
+        const firebaseUser = auth.currentUser;
+        if (firebaseUser) {
+          const email = firebaseUser.email;
+          const metadataUsername = firebaseUser.displayName;
           const username = metadataUsername || (email ? `@${email.split('@')[0]}` : `@user_${userId.slice(0, 5)}`);
           
           const { data: newProfile, error: createError } = await supabase
@@ -3082,7 +3145,7 @@ export default function App() {
       // Check if user is banned
       if (data?.is_banned) {
         console.warn('User is banned, logging out...');
-        await supabase.auth.signOut();
+        await auth.signOut();
         setUser(null);
         setProfile(null);
       }
@@ -3123,7 +3186,7 @@ export default function App() {
               <Route path="/profile/:author" element={<ProfileView user={user} />} />
               <Route path="/create" element={user ? <ArticleEditor user={user} profile={profile} /> : <Navigate to="/auth" />} />
               <Route path="/edit/:id" element={user ? <ArticleEditor user={user} profile={profile} /> : <Navigate to="/auth" />} />
-              <Route path="/settings" element={user ? <SettingsView profile={profile} onUpdate={() => fetchProfile(user.id)} /> : <Navigate to="/auth" />} />
+              <Route path="/settings" element={user ? <SettingsView profile={profile} user={user} onUpdate={() => fetchProfile(user.uid)} /> : <Navigate to="/auth" />} />
               <Route path="/admin" element={<AdminView />} />
               <Route path="/terms" element={<TermsView />} />
               <Route path="/auth" element={user ? <Navigate to="/" /> : <Auth />} />

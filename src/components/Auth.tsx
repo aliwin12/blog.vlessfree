@@ -1,10 +1,19 @@
 import React, { useState } from 'react';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
+import { auth, googleProvider } from '../lib/firebase';
+import { 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, 
+  sendEmailVerification, 
+  signInWithPopup,
+  updateProfile
+} from 'firebase/auth';
 import { motion, AnimatePresence } from 'motion/react';
-import { Mail, Lock, User, ArrowRight, Loader2, AlertCircle, CheckCircle2, Shield } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Mail, Lock, User, ArrowRight, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
 
 export const Auth = () => {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
@@ -25,67 +34,90 @@ export const Auth = () => {
       if (isSignUp) {
         if (username.length < 3) throw new Error('Имя пользователя должно быть не менее 3 символов');
         
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              username: username.startsWith('@') ? username : `@${username}`,
-            }
-          }
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+        
+        // Update display name in Firebase
+        await updateProfile(user, {
+          displayName: username.startsWith('@') ? username : `@${username}`
         });
-        if (signUpError) throw signUpError;
+
+        // Send verification email
+        await sendEmailVerification(user);
         
         setSuccess('Ссылка для подтверждения отправлена на вашу почту!');
       } else {
-        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
         
-        if (signInError) {
-          if (signInError.message.includes('Email not confirmed')) {
-            setError('Пожалуйста, подтвердите вашу почту перед входом. Проверьте папку "Спам".');
-            return;
-          }
-          throw signInError;
+        if (!user.emailVerified) {
+          setError('Пожалуйста, подтвердите вашу почту перед входом. Проверьте папку "Спам".');
+          return;
         }
 
-        if (signInData.user) {
-          const { data: pData } = await supabase
-            .from('profiles')
-            .select('is_banned')
-            .eq('id', signInData.user.id)
-            .single();
-          
-          if (pData?.is_banned) {
-            await supabase.auth.signOut();
-            throw new Error('Ваш аккаунт заблокирован. Доступ запрещен.');
-          }
+        // Check ban status in Supabase using Firebase UID
+        const { data: pData } = await supabase
+          .from('profiles')
+          .select('is_banned')
+          .eq('id', user.uid)
+          .single();
+        
+        if (pData?.is_banned) {
+          await auth.signOut();
+          throw new Error('Ваш аккаунт заблокирован. Доступ запрещен.');
         }
       }
     } catch (err: any) {
       console.error('Auth error:', err);
-      setError(err.message || 'Произошла ошибка при авторизации');
+      let message = 'Произошла ошибка при авторизации';
+      if (err.code === 'auth/email-already-in-use') message = 'Этот email уже используется';
+      if (err.code === 'auth/invalid-credential') message = 'Неверный email или пароль';
+      if (err.code === 'auth/weak-password') message = 'Пароль слишком слабый';
+      setError(err.message || message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleResendConfirmation = async () => {
-    if (!email || loading) return;
+    if (loading) return;
     setLoading(true);
     setError(null);
     setSuccess(null);
     try {
-      const { error } = await supabase.auth.resend({
-        type: 'signup',
-        email: email,
-      });
-      if (error) throw error;
-      setSuccess('Новая ссылка для подтверждения отправлена!');
+      if (auth.currentUser) {
+        await sendEmailVerification(auth.currentUser);
+        setSuccess('Новая ссылка для подтверждения отправлена!');
+      } else {
+        throw new Error('Сначала войдите в систему');
+      }
     } catch (err: any) {
       setError(err.message || 'Ошибка при повторной отправке');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCheckVerification = async () => {
+    if (loading) return;
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      if (auth.currentUser) {
+        await auth.currentUser.reload();
+        if (auth.currentUser.emailVerified) {
+          setSuccess('Почта подтверждена! Теперь вы можете войти.');
+          // Optional: automatically login or redirect
+          navigate('/');
+        } else {
+          setError('Почта все еще не подтверждена. Пожалуйста, проверьте ваш почтовый ящик.');
+        }
+      } else {
+        throw new Error('Сначала войдите в систему');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Ошибка при проверке');
     } finally {
       setLoading(false);
     }
@@ -96,54 +128,26 @@ export const Auth = () => {
     setLoading(true);
     setError(null);
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: window.location.origin
-        }
-      });
-      if (error) throw error;
+      const result = await signInWithPopup(auth, googleProvider);
+      const user = result.user;
+
+      // Check ban status in Supabase
+      const { data: pData } = await supabase
+        .from('profiles')
+        .select('is_banned')
+        .eq('id', user.uid)
+        .single();
+      
+      if (pData?.is_banned) {
+        await auth.signOut();
+        throw new Error('Ваш аккаунт заблокирован. Доступ запрещен.');
+      }
     } catch (err: any) {
       console.error('Google auth error:', err);
       setError(err.message || 'Ошибка при входе через Google');
       setLoading(false);
     }
   };
-
-  if (!isSupabaseConfigured) {
-    return (
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="max-w-md mx-auto px-4 py-12"
-      >
-        <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-900/30 rounded-3xl p-8 text-center">
-          <AlertCircle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-amber-900 dark:text-amber-200 mb-2">Supabase не настроен</h2>
-          <p className="text-amber-700 dark:text-amber-400 text-sm mb-6">
-            Для работы системы аккаунтов необходимо добавить переменные окружения VITE_SUPABASE_URL и VITE_SUPABASE_ANON_KEY в настройках проекта.
-          </p>
-          <div className="bg-white dark:bg-zinc-900 rounded-2xl p-6 text-left space-y-4 border border-amber-100 dark:border-amber-900/20 shadow-sm">
-            <div className="space-y-1">
-              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">шаг 1</p>
-              <p className="text-sm text-zinc-600 dark:text-zinc-300">Перейдите в настройки вашего проекта Supabase (Project Settings {"->"} API).</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">шаг 2</p>
-              <p className="text-sm text-zinc-600 dark:text-zinc-300">Скопируйте Project URL и anon public key.</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">шаг 3</p>
-              <p className="text-sm text-zinc-600 dark:text-zinc-300">В этом редакторе откройте Settings {"->"} Secrets и добавьте их.</p>
-            </div>
-            <div className="pt-2">
-              <p className="text-xs text-zinc-500 italic">После настройки обновите страницу, чтобы изменения вступили в силу.</p>
-            </div>
-          </div>
-        </div>
-      </motion.div>
-    );
-  }
 
   return (
     <motion.div 
@@ -246,13 +250,22 @@ export const Auth = () => {
                       {error}
                     </div>
                     {error.includes('подтвердите вашу почту') && (
-                      <button
-                        type="button"
-                        onClick={handleResendConfirmation}
-                        className="text-[10px] text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 font-bold uppercase tracking-widest ml-1 underline underline-offset-4"
-                      >
-                        отправить ссылку повторно
-                      </button>
+                      <div className="flex flex-col gap-1">
+                        <button
+                          type="button"
+                          onClick={handleResendConfirmation}
+                          className="text-[10px] text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 font-bold uppercase tracking-widest ml-1 underline underline-offset-4 text-left"
+                        >
+                          отправить ссылку повторно
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCheckVerification}
+                          className="text-[10px] text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 font-bold uppercase tracking-widest ml-1 underline underline-offset-4 text-left"
+                        >
+                          я подтвердил почту
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}
