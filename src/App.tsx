@@ -655,7 +655,6 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
             const currentDislikes = data.dislikes_count || data.dislikes || 0;
             setLikesCount(currentLikes);
             setDislikesCount(currentDislikes);
-            setViewsCount((data.views_count || 0) + 1);
             
             // Migrate old fields if necessary
             if (data.likes !== undefined || data.dislikes !== undefined) {
@@ -668,9 +667,27 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
               updateDoc(docRef, migrationData).catch(err => console.error('Migration failed:', err));
             }
             
-            // Increment views count in database
-            updateDoc(docRef, { views_count: increment(1) })
-              .catch(err => console.error('Error incrementing views:', err));
+            // Increment views count in database only if user hasn't viewed before
+            if (user) {
+              const viewRef = doc(db, 'articles', id, 'views', user.uid);
+              const viewSnap = await getDoc(viewRef);
+              
+              if (!viewSnap.exists()) {
+                const batch = writeBatch(db);
+                batch.set(viewRef, { created_at: serverTimestamp() });
+                batch.update(docRef, { views_count: increment(1) });
+                await batch.commit().catch(err => console.error('Error incrementing views:', err));
+                setViewsCount((data.views_count || 0) + 1);
+              } else {
+                setViewsCount(data.views_count || 0);
+              }
+            } else {
+              // For unauthenticated users, we still increment for now, 
+              // but ideally we'd use IP or session tracking (not possible here)
+              setViewsCount((data.views_count || 0) + 1);
+              updateDoc(docRef, { views_count: increment(1) })
+                .catch(err => console.error('Error incrementing views:', err));
+            }
             
             // Fetch author profile
             if (data.author_id) {

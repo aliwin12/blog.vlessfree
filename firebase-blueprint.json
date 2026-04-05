@@ -108,6 +108,15 @@
         "created_at": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "user_id", "actor_id", "type", "is_read", "created_at"]
+    },
+    "ArticleView": {
+      "title": "ArticleView",
+      "description": "User view of an article",
+      "type": "object",
+      "properties": {
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["created_at"]
     }
   },
   "firestore": {
@@ -126,6 +135,10 @@
     "/articles/{articleId}/reactions/{userId}": {
       "schema": "ArticleReaction",
       "description": "Article reactions"
+    },
+    "/articles/{articleId}/views/{userId}": {
+      "schema": "ArticleView",
+      "description": "Article views"
     },
     "/profiles/{profileId}/followers/{followerId}": {
       "schema": "Follow",

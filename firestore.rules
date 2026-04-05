@@ -138,6 +138,11 @@ service cloud.firestore {
         allow create, update: if isOwner(userId) && isValidReaction(request.resource.data);
         allow delete: if isOwner(userId);
       }
+
+      match /views/{userId} {
+        allow read: if true;
+        allow create: if isOwner(userId);
+      }
     }
 
     // Collection Group rule for comments
