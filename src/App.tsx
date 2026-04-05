@@ -65,7 +65,6 @@ import {
   Navigate
 } from 'react-router-dom';
 import Markdown from 'react-markdown';
-import { GoogleGenAI, Type } from "@google/genai";
 import { Article, MOCK_ARTICLES, Comment, Profile, BlockedUser, Notification } from './types';
 import { Auth } from './components/Auth';
 import { auth, db } from './lib/firebase';
@@ -2393,29 +2392,19 @@ const ArticleEditor = ({ user, profile }: { user: any | null, profile: Profile |
     if (!isDraft) {
       setCheckingCompliance(true);
       try {
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-        const response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: `Проверь статью на соответствие правилам (https://blog-vlessfree.vercel.app/terms). 
-          Дополнительное правило: использование слова "tqweji23" строго запрещено в любом контексте.
-          Заголовок: ${title}
-          Описание: ${excerpt}
-          Текст: ${content}`,
-          config: {
-            tools: [{ urlContext: {} }],
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                isCompliant: { type: Type.BOOLEAN },
-                reason: { type: Type.STRING, description: "Причина нарушения, если есть (на русском языке)" }
-              },
-              required: ["isCompliant"]
-            }
-          }
+        const response = await fetch('/api/check-compliance', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ title, excerpt, content })
         });
 
-        const result = JSON.parse(response.text || '{}');
+        if (!response.ok) {
+          throw new Error('Ошибка при проверке статьи через ИИ.');
+        }
+
+        const result = await response.json();
         if (result.isCompliant === false) {
           setError(`Статья нарушает правила: ${result.reason || 'неизвестная причина'}`);
           setLoading(false);
