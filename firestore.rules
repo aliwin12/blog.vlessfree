@@ -100,6 +100,7 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isOwner(profileId) && isValidProfile(request.resource.data);
       allow update: if (isOwner(profileId) || isAdmin()) && isValidProfile(request.resource.data);
+      allow delete: if isAdmin();
 
       match /followers/{followerId} {
         allow read: if true;

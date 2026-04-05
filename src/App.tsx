@@ -2953,12 +2953,11 @@ const AdminView = () => {
     if (password === ADMIN_PASSWORD) {
       setIsAuthorized(true);
     } else {
-      alert('Неверный пароль');
+      setToast({ message: 'Неверный пароль', type: 'error' });
     }
   };
 
   const handleDeleteArticle = async (id: string) => {
-    if (!confirm('Вы уверены, что хотите удалить эту статью?')) return;
     setActionLoading(id);
     try {
       await deleteDoc(doc(db, 'articles', id));
@@ -2973,7 +2972,6 @@ const AdminView = () => {
   };
 
   const handleDeleteProfile = async (id: string) => {
-    if (!confirm('Вы уверены, что хотите удалить этот профиль?')) return;
     setActionLoading(id);
     try {
       await deleteDoc(doc(db, 'profiles', id));
@@ -2988,7 +2986,6 @@ const AdminView = () => {
   };
 
   const handleDeleteComment = async (id: string) => {
-    if (!confirm('Вы уверены, что хотите удалить этот комментарий?')) return;
     setActionLoading(id);
     try {
       const comment = comments.find(c => c.id === id);
