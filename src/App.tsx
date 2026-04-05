@@ -88,7 +88,8 @@ import {
   serverTimestamp,
   increment,
   writeBatch,
-  getDocFromServer
+  getDocFromServer,
+  deleteField
 } from 'firebase/firestore';
 
 enum OperationType {
@@ -275,11 +276,11 @@ const ArticleCard = ({ article }: { article: Article }) => (
           </span>
           <span className="text-zinc-500 dark:text-zinc-600 text-xs">•</span>
           <span className="text-zinc-500 dark:text-zinc-500 text-xs flex items-center gap-1">
-            <ThumbsUp className="w-3 h-3" /> {article.likes_count || article.likes || 0}
+            <ThumbsUp className="w-3 h-3" /> {article.likes_count !== undefined ? article.likes_count : (article.likes || 0)}
           </span>
           <span className="text-zinc-500 dark:text-zinc-600 text-xs">•</span>
           <span className="text-zinc-500 dark:text-zinc-500 text-xs flex items-center gap-1">
-            <ThumbsDown className="w-3 h-3" /> {article.dislikes_count || article.dislikes || 0}
+            <ThumbsDown className="w-3 h-3" /> {article.dislikes_count !== undefined ? article.dislikes_count : (article.dislikes || 0)}
           </span>
         </div>
         <h3 className="text-xl font-bold mb-2 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors leading-tight dark:text-zinc-100">
@@ -639,19 +640,6 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
       if (!id) return;
       setLoading(true);
 
-      // First check mock articles
-      const mockIndex = MOCK_ARTICLES.findIndex(a => a.id === id);
-      if (mockIndex !== -1) {
-        const mock = MOCK_ARTICLES[mockIndex];
-        mock.views_count = (mock.views_count || 0) + 1;
-        setArticle({ ...mock });
-        setLikesCount(mock.likes_count || 0);
-        setDislikesCount(mock.dislikes_count || 0);
-        setViewsCount(mock.views_count);
-        setLoading(false);
-        return;
-      }
-
       // Fetch from Firestore
       try {
         const docRef = doc(db, 'articles', id);
@@ -663,9 +651,22 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
             setArticle(null);
           } else {
             setArticle({ id: docSnap.id, ...data });
-            setLikesCount(data.likes_count || data.likes || 0);
-            setDislikesCount(data.dislikes_count || data.dislikes || 0);
+            const currentLikes = data.likes_count || data.likes || 0;
+            const currentDislikes = data.dislikes_count || data.dislikes || 0;
+            setLikesCount(currentLikes);
+            setDislikesCount(currentDislikes);
             setViewsCount((data.views_count || 0) + 1);
+            
+            // Migrate old fields if necessary
+            if (data.likes !== undefined || data.dislikes !== undefined) {
+              const migrationData: any = {
+                likes_count: currentLikes,
+                dislikes_count: currentDislikes,
+                likes: deleteField(),
+                dislikes: deleteField()
+              };
+              updateDoc(docRef, migrationData).catch(err => console.error('Migration failed:', err));
+            }
             
             // Increment views count in database
             updateDoc(docRef, { views_count: increment(1) })
@@ -719,8 +720,8 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
     const unsubscribeArticle = onSnapshot(doc(db, 'articles', id), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data() as Article;
-        setLikesCount(data.likes_count || data.likes || 0);
-        setDislikesCount(data.dislikes_count || data.dislikes || 0);
+        setLikesCount(data.likes_count !== undefined ? data.likes_count : (data.likes || 0));
+        setDislikesCount(data.dislikes_count !== undefined ? data.dislikes_count : (data.dislikes || 0));
         setViewsCount(data.views_count || 0);
       }
     });
@@ -806,6 +807,12 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
 
   const handleReaction = async (type: 'like' | 'dislike') => {
     if (!user || !id || !article || reactionLoading) return;
+
+    // Prevent reactions on mock articles if they somehow still exist
+    if (MOCK_ARTICLES.some(m => m.id === id)) {
+      setError('Нельзя оценивать тестовые статьи');
+      return;
+    }
 
     setReactionLoading(true);
     try {
@@ -2074,7 +2081,7 @@ const HomeView = ({ user }: { user: any | null }) => {
         }));
 
         const validArticles = articlesData.filter(a => a !== null) as Article[];
-        setArticles([...validArticles, ...MOCK_ARTICLES]);
+        setArticles(validArticles);
       } catch (err) {
         console.error('Error fetching articles:', err);
       } finally {

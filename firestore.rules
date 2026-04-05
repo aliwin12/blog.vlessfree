@@ -135,7 +135,8 @@ service cloud.firestore {
 
       match /reactions/{userId} {
         allow read: if true;
-        allow write: if isOwner(userId) && isValidReaction(request.resource.data);
+        allow create, update: if isOwner(userId) && isValidReaction(request.resource.data);
+        allow delete: if isOwner(userId);
       }
     }
 
