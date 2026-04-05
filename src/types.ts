@@ -16,6 +16,8 @@ export interface Article {
   updated_at?: string;
   likes_count?: number;
   dislikes_count?: number;
+  likes?: number;
+  dislikes?: number;
   views_count?: number;
   author_is_verified?: boolean;
   author_profile?: Profile;

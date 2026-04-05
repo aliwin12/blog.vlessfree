@@ -273,6 +273,14 @@ const ArticleCard = ({ article }: { article: Article }) => (
           <span className="text-zinc-500 dark:text-zinc-500 text-xs flex items-center gap-1">
             <Eye className="w-3 h-3" /> {article.views_count || 0}
           </span>
+          <span className="text-zinc-500 dark:text-zinc-600 text-xs">•</span>
+          <span className="text-zinc-500 dark:text-zinc-500 text-xs flex items-center gap-1">
+            <ThumbsUp className="w-3 h-3" /> {article.likes_count || article.likes || 0}
+          </span>
+          <span className="text-zinc-500 dark:text-zinc-600 text-xs">•</span>
+          <span className="text-zinc-500 dark:text-zinc-500 text-xs flex items-center gap-1">
+            <ThumbsDown className="w-3 h-3" /> {article.dislikes_count || article.dislikes || 0}
+          </span>
         </div>
         <h3 className="text-xl font-bold mb-2 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors leading-tight dark:text-zinc-100">
           {article.title}
@@ -655,8 +663,8 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
             setArticle(null);
           } else {
             setArticle({ id: docSnap.id, ...data });
-            setLikesCount(data.likes_count || 0);
-            setDislikesCount(data.dislikes_count || 0);
+            setLikesCount(data.likes_count || data.likes || 0);
+            setDislikesCount(data.dislikes_count || data.dislikes || 0);
             setViewsCount((data.views_count || 0) + 1);
             
             // Increment views count in database
@@ -677,11 +685,6 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
             
             // Fetch user reaction and follow status
             if (user) {
-              const reactionSnap = await getDoc(doc(db, 'articles', id, 'reactions', user.uid));
-              if (reactionSnap.exists()) {
-                setUserReaction(reactionSnap.data().type as 'like' | 'dislike');
-              }
-
               if (data.author_id) {
                 const followSnap = await getDoc(doc(db, 'profiles', data.author_id, 'followers', user.uid));
                 if (followSnap.exists()) {
@@ -699,6 +702,33 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
 
     fetchArticle();
     fetchMoreArticles();
+
+    // Real-time listener for user reaction
+    let unsubscribeReaction: (() => void) | undefined;
+    if (user) {
+      unsubscribeReaction = onSnapshot(doc(db, 'articles', id, 'reactions', user.uid), (docSnap) => {
+        if (docSnap.exists()) {
+          setUserReaction(docSnap.data().type as 'like' | 'dislike');
+        } else {
+          setUserReaction(null);
+        }
+      });
+    }
+
+    // Real-time listener for article counts
+    const unsubscribeArticle = onSnapshot(doc(db, 'articles', id), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data() as Article;
+        setLikesCount(data.likes_count || data.likes || 0);
+        setDislikesCount(data.dislikes_count || data.dislikes || 0);
+        setViewsCount(data.views_count || 0);
+      }
+    });
+
+    return () => {
+      unsubscribeReaction?.();
+      unsubscribeArticle();
+    };
   }, [id, user]);
 
   const fetchMoreArticles = async () => {
@@ -775,50 +805,51 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
   };
 
   const handleReaction = async (type: 'like' | 'dislike') => {
-    if (!user || !id || reactionLoading) return;
+    if (!user || !id || !article || reactionLoading) return;
 
     setReactionLoading(true);
     try {
       const reactionRef = doc(db, 'articles', id, 'reactions', user.uid);
       const articleRef = doc(db, 'articles', id);
+      const batch = writeBatch(db);
       
       if (userReaction === type) {
         // Remove reaction
-        await deleteDoc(reactionRef);
+        batch.delete(reactionRef);
         
         if (type === 'like') {
           setLikesCount(prev => Math.max(0, prev - 1));
-          await updateDoc(articleRef, { likes_count: increment(-1) });
+          batch.update(articleRef, { likes_count: increment(-1) });
         } else {
           setDislikesCount(prev => Math.max(0, prev - 1));
-          await updateDoc(articleRef, { dislikes_count: increment(-1) });
+          batch.update(articleRef, { dislikes_count: increment(-1) });
         }
         setUserReaction(null);
       } else {
         // Add or change reaction
-        await setDoc(reactionRef, { type: type, created_at: new Date().toISOString() });
+        batch.set(reactionRef, { type: type, created_at: new Date().toISOString() });
 
         if (userReaction === null) {
           if (type === 'like') {
             setLikesCount(prev => prev + 1);
-            await updateDoc(articleRef, { likes_count: increment(1) });
+            batch.update(articleRef, { likes_count: increment(1) });
           } else {
             setDislikesCount(prev => prev + 1);
-            await updateDoc(articleRef, { dislikes_count: increment(1) });
+            batch.update(articleRef, { dislikes_count: increment(1) });
           }
         } else {
           // Changed from like to dislike or vice versa
           if (type === 'like') {
             setLikesCount(prev => prev + 1);
             setDislikesCount(prev => Math.max(0, prev - 1));
-            await updateDoc(articleRef, { 
+            batch.update(articleRef, { 
               likes_count: increment(1),
               dislikes_count: increment(-1)
             });
           } else {
             setDislikesCount(prev => prev + 1);
             setLikesCount(prev => Math.max(0, prev - 1));
-            await updateDoc(articleRef, { 
+            batch.update(articleRef, { 
               likes_count: increment(-1),
               dislikes_count: increment(1)
             });
@@ -827,8 +858,9 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
         setUserReaction(type);
 
         // Notify author of new like
-        if (type === 'like' && userReaction === null && article.author_id !== user.uid) {
-          await addDoc(collection(db, 'notifications'), {
+        if (type === 'like' && article.author_id && article.author_id !== user.uid) {
+          const notificationRef = doc(collection(db, 'notifications'));
+          batch.set(notificationRef, {
             user_id: article.author_id,
             actor_id: user.uid,
             type: 'like',
@@ -838,9 +870,12 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
           });
         }
       }
+      
+      await batch.commit();
     } catch (err: any) {
       handleFirestoreError(err, OperationType.WRITE, `articles/${id}/reactions/${user.uid}`);
       setError('Ошибка при обновлении реакции');
+      // Revert local state on error would be ideal, but complex here
     } finally {
       setReactionLoading(false);
     }

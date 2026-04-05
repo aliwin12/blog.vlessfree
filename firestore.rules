@@ -54,6 +54,8 @@ service cloud.firestore {
              (!('views_count' in data) || data.views_count is int) &&
              (!('likes_count' in data) || data.likes_count is int) &&
              (!('dislikes_count' in data) || data.dislikes_count is int) &&
+             (!('likes' in data) || data.likes is int) &&
+             (!('dislikes' in data) || data.dislikes is int) &&
              (data.created_at is string || data.created_at is timestamp) &&
              (!('updated_at' in data) || data.updated_at is string || data.updated_at is timestamp);
     }
