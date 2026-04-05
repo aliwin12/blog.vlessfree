@@ -24,9 +24,12 @@ import {
   Link as LinkIcon,
   Check,
   LogOut,
+  Mail,
   LogIn,
   Search,
   MessageSquare,
+  Bell,
+  CheckCheck,
   Loader2,
   AlertCircle as AlertIcon,
   Settings,
@@ -63,13 +66,83 @@ import {
 } from 'react-router-dom';
 import Markdown from 'react-markdown';
 import { GoogleGenAI, Type } from "@google/genai";
-import { Article, MOCK_ARTICLES, Comment, Profile, BlockedUser } from './types';
-import { supabase, isSupabaseConfigured } from './lib/supabase';
+import { Article, MOCK_ARTICLES, Comment, Profile, BlockedUser, Notification } from './types';
 import { Auth } from './components/Auth';
-import { auth } from './lib/firebase';
-import { onIdTokenChanged, User as FirebaseUser } from 'firebase/auth';
+import { auth, db } from './lib/firebase';
+import { onIdTokenChanged, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { 
+  collection, 
+  doc, 
+  getDoc, 
+  getDocs, 
+  setDoc, 
+  updateDoc, 
+  deleteDoc, 
+  query, 
+  where, 
+  orderBy, 
+  limit, 
+  onSnapshot, 
+  addDoc,
+  collectionGroup,
+  serverTimestamp,
+  increment,
+  writeBatch,
+  getDocFromServer
+} from 'firebase/firestore';
 
-const Navbar = ({ isDark, toggleDark, user, profile }: { isDark: boolean, toggleDark: () => void, user: any | null, profile: Profile | null }) => {
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+const Navbar = ({ isDark, toggleDark, user, profile, notificationsCount = 0 }: { isDark: boolean, toggleDark: () => void, user: any | null, profile: Profile | null, notificationsCount?: number }) => {
   const handleLogout = async () => {
     await auth.signOut();
   };
@@ -111,6 +184,18 @@ const Navbar = ({ isDark, toggleDark, user, profile }: { isDark: boolean, toggle
                 </Link>
 
                 <div className="flex items-center gap-1">
+                  <Link 
+                    to="/notifications"
+                    className="p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-400 relative"
+                    title="Уведомления"
+                  >
+                    <Bell className="w-5 h-5" />
+                    {notificationsCount > 0 && (
+                      <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center rounded-full border-2 border-white dark:border-zinc-950">
+                        {notificationsCount > 9 ? '9+' : notificationsCount}
+                      </span>
+                    )}
+                  </Link>
                   <Link 
                     to={`/profile/${user.uid}`}
                     className="p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-400"
@@ -233,93 +318,51 @@ const ArticleCard = ({ article }: { article: Article }) => (
   </motion.div>
 );
 
-const CommentSection = ({ articleId, user }: { articleId: string, user: any | null }) => {
+const CommentSection = ({ articleId, user, authorId }: { articleId: string, user: any | null, authorId?: string }) => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
+  const [replyTo, setReplyTo] = useState<Comment | null>(null);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) {
-      setFetching(false);
-      return;
-    }
-
-    const fetchComments = async () => {
-      const { data, error } = await supabase
-        .from('comments')
-        .select(`
-          *,
-          profile:profiles!inner(*)
-        `)
-        .eq('article_id', articleId)
-        .eq('profile.is_banned', false)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('Error fetching comments:', error);
-      } else {
-        setComments(data || []);
-      }
-      setFetching(false);
-    };
-
-    fetchComments();
-
-    // Subscribe to comments changes
-    const subscription = supabase
-      .channel(`comments-${articleId}`)
-      .on('postgres_changes', { 
-        event: 'INSERT', 
-        schema: 'public', 
-        table: 'comments',
-        filter: `article_id=eq.${articleId}`
-      }, async (payload) => {
-        // Fetch profile for the new comment
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', payload.new.user_id)
-          .single();
+    const q = query(
+      collection(db, 'articles', articleId, 'comments'),
+      orderBy('created_at', 'desc')
+    );
+    
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      const commentData = await Promise.all(snapshot.docs.map(async (commentDoc) => {
+        const data = commentDoc.data();
+        const profileDoc = await getDoc(doc(db, 'profiles', data.user_id));
+        const profile = profileDoc.exists() ? profileDoc.data() as Profile : null;
         
-        if (profileData?.is_banned) return; // Don't add if banned
+        if (profile?.is_banned) return null;
+        
+        return {
+          id: commentDoc.id,
+          ...data,
+          profile
+        } as Comment;
+      }));
+      
+      setComments(commentData.filter(c => c !== null) as Comment[]);
+      setFetching(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, `articles/${articleId}/comments`);
+    });
 
-        const commentWithProfile = { ...payload.new, profile: profileData } as Comment;
-        setComments(prev => {
-          if (prev.some(c => c.id === commentWithProfile.id)) return prev;
-          return [commentWithProfile, ...prev];
-        });
-      })
-      .on('postgres_changes', {
-        event: 'DELETE',
-        schema: 'public',
-        table: 'comments',
-        filter: `article_id=eq.${articleId}`
-      }, (payload) => {
-        setComments(prev => prev.filter(c => c.id !== payload.old.id));
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(subscription);
-    };
+    return () => unsubscribe();
   }, [articleId]);
 
   const handleDelete = async (commentId: string) => {
     setDeletingId(commentId);
 
     try {
-      const { error } = await supabase
-        .from('comments')
-        .delete()
-        .eq('id', commentId);
-
-      if (error) throw error;
-      
-      setComments(prev => prev.filter(c => c.id !== commentId));
+      await deleteDoc(doc(db, 'articles', articleId, 'comments', commentId));
     } catch (error) {
-      console.error('Error deleting comment:', error);
+      handleFirestoreError(error, OperationType.DELETE, `articles/${articleId}/comments/${commentId}`);
     } finally {
       setDeletingId(null);
     }
@@ -330,22 +373,53 @@ const CommentSection = ({ articleId, user }: { articleId: string, user: any | nu
     if (!user || !newComment.trim() || loading) return;
 
     setLoading(true);
-    const { error } = await supabase.from('comments').insert([
-      {
+    try {
+      const commentRef = collection(db, 'articles', articleId, 'comments');
+      const newCommentData = {
         article_id: articleId,
         user_id: user.uid,
         content: newComment.trim(),
-      }
-    ]);
+        parent_id: replyTo?.id || null,
+        created_at: new Date().toISOString()
+      };
+      
+      await addDoc(commentRef, newCommentData);
 
-    if (error) {
-      console.error('Error posting comment:', error);
-      alert('Ошибка при отправке комментария');
-    } else {
+      // Create notification for article author
+      if (authorId && authorId !== user.uid && !replyTo) {
+        await addDoc(collection(db, 'notifications'), {
+          user_id: authorId,
+          actor_id: user.uid,
+          type: 'comment',
+          article_id: articleId,
+          is_read: false,
+          created_at: new Date().toISOString()
+        });
+      }
+
+      // Create notification for comment author (reply)
+      if (replyTo && replyTo.user_id !== user.uid) {
+        await addDoc(collection(db, 'notifications'), {
+          user_id: replyTo.user_id,
+          actor_id: user.uid,
+          type: 'reply',
+          article_id: articleId,
+          comment_id: replyTo.id,
+          is_read: false,
+          created_at: new Date().toISOString()
+        });
+      }
       setNewComment('');
+      setReplyTo(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `articles/${articleId}/comments`);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
+
+  const rootComments = (comments || []).filter(c => !c.parent_id);
+  const getReplies = (parentId: string) => (comments || []).filter(c => c.parent_id === parentId).reverse();
 
   return (
     <section className="mt-16 pt-12 border-t border-zinc-200 dark:border-zinc-800">
@@ -356,11 +430,25 @@ const CommentSection = ({ articleId, user }: { articleId: string, user: any | nu
 
       {user ? (
         <form onSubmit={handleSubmit} className="mb-12">
-          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-4 shadow-sm focus-within:border-zinc-900 dark:focus-within:border-zinc-100 transition-colors">
+          {replyTo && (
+            <div className="flex items-center justify-between px-4 py-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-t-2xl border-x border-t border-emerald-200 dark:border-emerald-800">
+              <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">
+                ответ пользователю <span className="font-bold">@{replyTo.profile?.username}</span>
+              </p>
+              <button 
+                type="button"
+                onClick={() => setReplyTo(null)}
+                className="p-1 hover:bg-emerald-100 dark:hover:bg-emerald-800 rounded-full transition-colors"
+              >
+                <X className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+              </button>
+            </div>
+          )}
+          <div className={`bg-white dark:bg-zinc-900 ${replyTo ? 'rounded-b-2xl' : 'rounded-2xl'} border border-zinc-200 dark:border-zinc-800 p-4 shadow-sm focus-within:border-zinc-900 dark:focus-within:border-zinc-100 transition-colors`}>
             <textarea
               value={newComment}
               onChange={(e) => setNewComment(e.target.value)}
-              placeholder="напишите ваш комментарий..."
+              placeholder={replyTo ? "напишите ваш ответ..." : "напишите ваш комментарий..."}
               className="w-full bg-transparent border-none focus:ring-0 text-sm dark:text-zinc-100 resize-none min-h-[100px]"
               required
             />
@@ -371,7 +459,7 @@ const CommentSection = ({ articleId, user }: { articleId: string, user: any | nu
                 className="px-6 py-2 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2"
               >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                отправить
+                {replyTo ? 'ответить' : 'отправить'}
               </button>
             </div>
           </div>
@@ -385,70 +473,134 @@ const CommentSection = ({ articleId, user }: { articleId: string, user: any | nu
         </div>
       )}
 
-      <div className="space-y-6">
+      <div className="space-y-8">
         {fetching ? (
           <div className="flex justify-center py-8">
             <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
           </div>
-        ) : comments.length > 0 ? (
-          comments.map((comment) => (
-            <motion.div
-              key={comment.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex gap-4"
-            >
-              <div className="w-10 h-10 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center shrink-0 overflow-hidden">
-                {comment.profile?.avatar_url ? (
-                  <img src={comment.profile.avatar_url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                ) : (
-                  <User className="w-5 h-5 text-zinc-500 dark:text-zinc-400" />
-                )}
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-2">
-                    <Link 
-                      to={`/profile/${comment.profile?.id || comment.user_id}`}
-                      className="text-sm font-bold dark:text-zinc-100 hover:underline flex items-center gap-1.5"
-                    >
-                      {comment.profile?.username || 'аноним'}
-                      {comment.profile?.is_verified && (
-                        <ShieldCheck className="w-3 h-3 text-blue-500 fill-blue-500/10" />
-                      )}
-                      {comment.profile?.badge && (
-                        <span className="px-1 py-0.5 rounded bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-[8px] font-bold uppercase tracking-wider">
-                          {comment.profile.badge}
-                        </span>
-                      )}
-                    </Link>
-                    <span className="text-[10px] text-zinc-500 dark:text-zinc-600 uppercase tracking-widest">
-                      {new Date(comment.created_at).toLocaleDateString('ru-RU')}
-                    </span>
-                  </div>
-                  {user?.uid === comment.user_id && (
-                    <button 
-                      onClick={() => handleDelete(comment.id)}
-                      disabled={deletingId === comment.id}
-                      className="p-1.5 text-zinc-400 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50 dark:hover:bg-red-900/10 disabled:opacity-50"
-                      title="Удалить"
-                    >
-                      {deletingId === comment.id ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Trash2 className="w-3.5 h-3.5" />
-                      )}
-                    </button>
+        ) : rootComments.length > 0 ? (
+          rootComments.map((comment) => (
+            <div key={comment.id} className="space-y-4">
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex gap-4"
+              >
+                <div className="w-10 h-10 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center shrink-0 overflow-hidden">
+                  {comment.profile?.avatar_url ? (
+                    <img src={comment.profile.avatar_url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  ) : (
+                    <User className="w-5 h-5 text-zinc-500 dark:text-zinc-400" />
                   )}
                 </div>
-                <p className="text-sm text-zinc-700 dark:text-zinc-400 leading-relaxed">
-                  {comment.content}
-                </p>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <Link 
+                        to={`/profile/${comment.profile?.id || comment.user_id}`}
+                        className="text-sm font-bold dark:text-zinc-100 hover:underline flex items-center gap-1.5"
+                      >
+                        {comment.profile?.username || 'аноним'}
+                        {comment.profile?.is_verified && (
+                          <ShieldCheck className="w-3 h-3 text-blue-500 fill-blue-500/10" />
+                        )}
+                        {comment.profile?.badge && (
+                          <span className="px-1 py-0.5 rounded bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-[8px] font-bold uppercase tracking-wider">
+                            {comment.profile.badge}
+                          </span>
+                        )}
+                      </Link>
+                      <span className="text-[10px] text-zinc-500 dark:text-zinc-600 uppercase tracking-widest">
+                        {new Date(comment.created_at).toLocaleDateString('ru-RU')}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {user && (
+                        <button 
+                          onClick={() => {
+                            setReplyTo(comment);
+                            window.scrollTo({ top: document.querySelector('form')?.offsetTop ? document.querySelector('form')!.offsetTop - 100 : 0, behavior: 'smooth' });
+                          }}
+                          className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+                          title="Ответить"
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                        </button>
+                      )}
+                      {(user?.uid === comment.user_id || user?.uid === authorId) && (
+                        <button 
+                          onClick={() => handleDelete(comment.id)}
+                          disabled={deletingId === comment.id}
+                          className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-zinc-400 hover:text-red-600 transition-colors disabled:opacity-50"
+                          title="Удалить"
+                        >
+                          {deletingId === comment.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed whitespace-pre-wrap">
+                    {comment.content}
+                  </p>
+                </div>
+              </motion.div>
+
+              {/* Replies */}
+              <div className="ml-14 space-y-4 border-l-2 border-zinc-100 dark:border-zinc-800 pl-6">
+                {getReplies(comment.id).map(reply => (
+                  <motion.div
+                    key={reply.id}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="flex gap-3"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center shrink-0 overflow-hidden">
+                      {reply.profile?.avatar_url ? (
+                        <img src={reply.profile.avatar_url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        <User className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <Link 
+                            to={`/profile/${reply.profile?.id || reply.user_id}`}
+                            className="text-xs font-bold dark:text-zinc-100 hover:underline flex items-center gap-1.5"
+                          >
+                            {reply.profile?.username || 'аноним'}
+                            {reply.profile?.is_verified && (
+                              <ShieldCheck className="w-2.5 h-2.5 text-blue-500 fill-blue-500/10" />
+                            )}
+                          </Link>
+                          <span className="text-[9px] text-zinc-500 dark:text-zinc-600 uppercase tracking-widest">
+                            {new Date(reply.created_at).toLocaleDateString('ru-RU')}
+                          </span>
+                        </div>
+                        {(user?.uid === reply.user_id || user?.uid === authorId) && (
+                          <button 
+                            onClick={() => handleDelete(reply.id)}
+                            disabled={deletingId === reply.id}
+                            className="p-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-zinc-400 hover:text-red-600 transition-colors disabled:opacity-50"
+                          >
+                            {deletingId === reply.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed whitespace-pre-wrap">
+                        {reply.content}
+                      </p>
+                    </div>
+                  </motion.div>
+                ))}
               </div>
-            </motion.div>
+            </div>
           ))
         ) : (
-          <p className="text-center text-zinc-500 dark:text-zinc-400 text-sm py-8">пока нет комментариев. станьте первым!</p>
+          <div className="text-center py-12 bg-zinc-50 dark:bg-zinc-900/30 rounded-3xl border border-zinc-200 dark:border-zinc-800">
+            <MessageSquare className="w-8 h-8 text-zinc-300 dark:text-zinc-700 mx-auto mb-3" />
+            <p className="text-zinc-500 dark:text-zinc-400 text-sm italic">пока нет комментариев. станьте первым!</p>
+          </div>
         )}
       </div>
     </section>
@@ -492,81 +644,55 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
         return;
       }
 
-      // If not mock, fetch from Supabase
-      if (isSupabaseConfigured) {
-        const { data, error } = await supabase
-          .from('articles')
-          .select('*')
-          .eq('id', id)
-          .single();
+      // Fetch from Firestore
+      try {
+        const docRef = doc(db, 'articles', id);
+        const docSnap = await getDoc(docRef);
         
-        if (data) {
+        if (docSnap.exists()) {
+          const data = docSnap.data() as Article;
           if (data.is_draft && (!user || data.author_id !== user.uid)) {
             setArticle(null);
           } else {
-            setArticle(data);
+            setArticle({ id: docSnap.id, ...data });
             setLikesCount(data.likes_count || 0);
             setDislikesCount(data.dislikes_count || 0);
             setViewsCount((data.views_count || 0) + 1);
             
             // Increment views count in database
-            if (data.views_count !== undefined) {
-              supabase
-                .from('articles')
-                .update({ views_count: (data.views_count || 0) + 1 })
-                .eq('id', id)
-                .then(({ error }) => {
-                  if (error) {
-                    console.error('Error incrementing views:', error);
-                    // If column is missing, we don't want to spam console in production
-                    // but here it helps user diagnose.
-                  }
-                });
-            }
+            updateDoc(docRef, { views_count: increment(1) })
+              .catch(err => console.error('Error incrementing views:', err));
             
             // Fetch author profile
             if (data.author_id) {
-              supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', data.author_id)
-                .single()
-                .then(({ data: pData }) => {
-                  if (pData) {
-                    setAuthorProfile(pData);
-                    if (pData.is_banned) {
-                      setArticle(null);
-                    }
-                  }
-                });
+              const profileSnap = await getDoc(doc(db, 'profiles', data.author_id));
+              if (profileSnap.exists()) {
+                const pData = profileSnap.data() as Profile;
+                setAuthorProfile(pData);
+                if (pData.is_banned) {
+                  setArticle(null);
+                }
+              }
             }
             
             // Fetch user reaction and follow status
             if (user) {
-              const [reactionRes, followRes] = await Promise.all([
-                supabase
-                  .from('article_reactions')
-                  .select('type')
-                  .eq('article_id', id)
-                  .eq('user_id', user.uid)
-                  .maybeSingle(),
-                data.author_id ? supabase
-                  .from('follows')
-                  .select('*')
-                  .eq('follower_id', user.uid)
-                  .eq('following_id', data.author_id)
-                  .maybeSingle() : Promise.resolve({ data: null })
-              ]);
-              
-              if (reactionRes.data) {
-                setUserReaction(reactionRes.data.type as 'like' | 'dislike');
+              const reactionSnap = await getDoc(doc(db, 'articles', id, 'reactions', user.uid));
+              if (reactionSnap.exists()) {
+                setUserReaction(reactionSnap.data().type as 'like' | 'dislike');
               }
-              if (followRes.data) {
-                setIsFollowingAuthor(true);
+
+              if (data.author_id) {
+                const followSnap = await getDoc(doc(db, 'profiles', data.author_id, 'followers', user.uid));
+                if (followSnap.exists()) {
+                  setIsFollowingAuthor(true);
+                }
               }
             }
           }
         }
+      } catch (error) {
+        handleFirestoreError(error, OperationType.GET, `articles/${id}`);
       }
       setLoading(false);
     };
@@ -576,42 +702,38 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
   }, [id, user]);
 
   const fetchMoreArticles = async () => {
-    if (!isSupabaseConfigured) {
-      setMoreArticles(MOCK_ARTICLES.filter(a => a.id !== id).slice(0, 3));
-      return;
-    }
-
     setMoreArticlesLoading(true);
     try {
-      // Get blocked users to filter them out
+      // Get blocked users
       let blockedUserIds: string[] = [];
       if (user) {
-        const { data: blockedData } = await supabase
-          .from('blocked_users')
-          .select('blocked_id')
-          .eq('blocker_id', user.uid);
-        if (blockedData) {
-          blockedUserIds = blockedData.map(b => b.blocked_id);
-        }
+        const blockedSnap = await getDocs(collection(db, 'profiles', user.uid, 'blocked_users'));
+        blockedUserIds = blockedSnap.docs.map(doc => doc.id);
       }
 
-      const { data, error } = await supabase
-        .from('articles')
-        .select('*, profiles(username, avatar_url)')
-        .eq('is_draft', false)
-        .neq('id', id)
-        .order('created_at', { ascending: false })
-        .limit(6);
-
-      if (data) {
-        const mapped = data
-          .filter(a => !blockedUserIds.includes(a.author_id))
-          .map(a => ({
-            ...a,
-            author_profile: a.profiles
-          }));
-        setMoreArticles(mapped as any);
-      }
+      const q = query(
+        collection(db, 'articles'),
+        where('is_draft', '==', false),
+        orderBy('created_at', 'desc'),
+        limit(10)
+      );
+      
+      const snapshot = await getDocs(q);
+      const articles = await Promise.all(snapshot.docs.map(async (articleDoc) => {
+        const data = articleDoc.data() as Article;
+        if (articleDoc.id === id || blockedUserIds.includes(data.author_id)) return null;
+        
+        const profileSnap = await getDoc(doc(db, 'profiles', data.author_id));
+        const profile = profileSnap.exists() ? profileSnap.data() as Profile : null;
+        
+        return {
+          id: articleDoc.id,
+          ...data,
+          author_profile: profile
+        } as any;
+      }));
+      
+      setMoreArticles(articles.filter(a => a !== null).slice(0, 3) as Article[]);
     } catch (err) {
       console.error('Error fetching more articles:', err);
     } finally {
@@ -620,89 +742,104 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
   };
 
   const handleFollowAuthor = async () => {
-    if (!user || !article || !article.author_id || !isSupabaseConfigured || followLoading || user.uid === article.author_id) return;
+    if (!user || !article || !article.author_id || followLoading || user.uid === article.author_id) return;
 
     setFollowLoading(true);
     try {
+      const followerRef = doc(db, 'profiles', article.author_id, 'followers', user.uid);
+      const followingRef = doc(db, 'profiles', user.uid, 'following', article.author_id);
+      
       if (isFollowingAuthor) {
-        const { error } = await supabase
-          .from('follows')
-          .delete()
-          .eq('follower_id', user.uid)
-          .eq('following_id', article.author_id);
-        
-        if (error) throw error;
+        await deleteDoc(followerRef);
+        await deleteDoc(followingRef);
         setIsFollowingAuthor(false);
       } else {
-        const { error } = await supabase
-          .from('follows')
-          .insert([{ follower_id: user.uid, following_id: article.author_id }]);
-        
-        if (error) throw error;
+        await setDoc(followerRef, { created_at: new Date().toISOString() });
+        await setDoc(followingRef, { created_at: new Date().toISOString() });
         setIsFollowingAuthor(true);
+
+        // Notify author
+        await addDoc(collection(db, 'notifications'), {
+          user_id: article.author_id,
+          actor_id: user.uid,
+          type: 'follow',
+          is_read: false,
+          created_at: new Date().toISOString()
+        });
       }
     } catch (err: any) {
-      console.error('Error handling follow in article detail:', err);
+      handleFirestoreError(err, OperationType.WRITE, `profiles/${article.author_id}/followers/${user.uid}`);
     } finally {
       setFollowLoading(false);
     }
   };
 
   const handleReaction = async (type: 'like' | 'dislike') => {
-    if (!user || !id || !isSupabaseConfigured || reactionLoading) return;
+    if (!user || !id || reactionLoading) return;
 
     setReactionLoading(true);
     try {
+      const reactionRef = doc(db, 'articles', id, 'reactions', user.uid);
+      const articleRef = doc(db, 'articles', id);
+      
       if (userReaction === type) {
         // Remove reaction
-        const { error } = await supabase
-          .from('article_reactions')
-          .delete()
-          .eq('article_id', id)
-          .eq('user_id', user.uid);
+        await deleteDoc(reactionRef);
         
-        if (error) throw error;
-        
-        if (type === 'like') setLikesCount(prev => Math.max(0, prev - 1));
-        else setDislikesCount(prev => Math.max(0, prev - 1));
+        if (type === 'like') {
+          setLikesCount(prev => Math.max(0, prev - 1));
+          await updateDoc(articleRef, { likes_count: increment(-1) });
+        } else {
+          setDislikesCount(prev => Math.max(0, prev - 1));
+          await updateDoc(articleRef, { dislikes_count: increment(-1) });
+        }
         setUserReaction(null);
       } else {
         // Add or change reaction
-        const { error } = await supabase
-          .from('article_reactions')
-          .upsert({
-            article_id: id,
-            user_id: user.uid,
-            type: type
-          }, { onConflict: 'article_id,user_id' });
-        
-        if (error) throw error;
+        await setDoc(reactionRef, { type: type, created_at: new Date().toISOString() });
 
         if (userReaction === null) {
-          if (type === 'like') setLikesCount(prev => prev + 1);
-          else setDislikesCount(prev => prev + 1);
+          if (type === 'like') {
+            setLikesCount(prev => prev + 1);
+            await updateDoc(articleRef, { likes_count: increment(1) });
+          } else {
+            setDislikesCount(prev => prev + 1);
+            await updateDoc(articleRef, { dislikes_count: increment(1) });
+          }
         } else {
           // Changed from like to dislike or vice versa
           if (type === 'like') {
             setLikesCount(prev => prev + 1);
             setDislikesCount(prev => Math.max(0, prev - 1));
+            await updateDoc(articleRef, { 
+              likes_count: increment(1),
+              dislikes_count: increment(-1)
+            });
           } else {
             setDislikesCount(prev => prev + 1);
             setLikesCount(prev => Math.max(0, prev - 1));
+            await updateDoc(articleRef, { 
+              likes_count: increment(-1),
+              dislikes_count: increment(1)
+            });
           }
         }
         setUserReaction(type);
+
+        // Notify author of new like
+        if (type === 'like' && userReaction === null && article.author_id !== user.uid) {
+          await addDoc(collection(db, 'notifications'), {
+            user_id: article.author_id,
+            actor_id: user.uid,
+            type: 'like',
+            article_id: article.id,
+            is_read: false,
+            created_at: new Date().toISOString()
+          });
+        }
       }
-
-      // Update article counts in background (simplified for this demo)
-      // In a real app, you'd use a database trigger or a more robust update
-      await supabase.from('articles').update({
-        likes_count: type === 'like' ? (userReaction === 'like' ? likesCount - 1 : likesCount + 1) : (userReaction === 'like' ? likesCount - 1 : likesCount),
-        dislikes_count: type === 'dislike' ? (userReaction === 'dislike' ? dislikesCount - 1 : dislikesCount + 1) : (userReaction === 'dislike' ? dislikesCount - 1 : dislikesCount)
-      }).eq('id', id);
-
     } catch (err: any) {
-      console.error('Error handling reaction:', err);
+      handleFirestoreError(err, OperationType.WRITE, `articles/${id}/reactions/${user.uid}`);
       setError('Ошибка при обновлении реакции');
     } finally {
       setReactionLoading(false);
@@ -758,8 +895,8 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
   ];
 
   const handleDelete = async () => {
-    if (!article || !isSupabaseConfigured) {
-      setError('Supabase не настроен или статья не найдена');
+    if (!article) {
+      setError('Статья не найдена');
       setShowDeleteConfirm(false);
       return;
     }
@@ -767,12 +904,7 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
     setLoading(true);
     setError(null);
     try {
-      const { error } = await supabase
-        .from('articles')
-        .delete()
-        .eq('id', article.id);
-
-      if (error) throw error;
+      await deleteDoc(doc(db, 'articles', article.id));
       
       setShowDeleteConfirm(false);
       navigate('/');
@@ -1028,7 +1160,7 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
         )}
       </div>
 
-      <CommentSection articleId={article.id} user={user} />
+      <CommentSection articleId={article.id} user={user} authorId={article.author_id} />
 
       <section className="mt-20 pt-12 border-t border-zinc-200 dark:border-zinc-800">
         <div className="flex items-center justify-between mb-8">
@@ -1090,20 +1222,17 @@ const ProfileView = ({ user }: { user: any | null }) => {
       setLoading(true);
       try {
         // 1. Try to fetch by ID
-        let { data: profileData, error: idError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', author)
-          .maybeSingle();
+        const profileDoc = await getDoc(doc(db, 'profiles', author));
+        let profileData = profileDoc.exists() ? { id: profileDoc.id, ...profileDoc.data() } as Profile : null;
         
         // 2. If not found by ID, try by username
         if (!profileData) {
-          const { data: usernameData } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('username', author.startsWith('@') ? author : `@${author}`)
-            .maybeSingle();
-          profileData = usernameData;
+          const q = query(collection(db, 'profiles'), where('username', '==', author.startsWith('@') ? author : `@${author}`), limit(1));
+          const querySnapshot = await getDocs(q);
+          if (!querySnapshot.empty) {
+            const d = querySnapshot.docs[0];
+            profileData = { id: d.id, ...d.data() } as Profile;
+          }
         }
         
         if (profileData) {
@@ -1113,25 +1242,15 @@ const ProfileView = ({ user }: { user: any | null }) => {
 
           // Check if current user is following or blocked
           if (user && user.uid !== profileData.id) {
-            const [followRes, blockRes] = await Promise.all([
-              supabase
-                .from('follows')
-                .select('*')
-                .eq('follower_id', user.uid)
-                .eq('following_id', profileData.id)
-                .maybeSingle(),
-              supabase
-                .from('blocked_users')
-                .select('*')
-                .or(`and(blocker_id.eq.${user.uid},blocked_id.eq.${profileData.id}),and(blocker_id.eq.${profileData.id},blocked_id.eq.${user.uid})`)
+            const [followDoc, blockDoc, hasBlockedDoc] = await Promise.all([
+              getDoc(doc(db, 'profiles', profileData.id, 'followers', user.uid)),
+              getDoc(doc(db, 'profiles', user.uid, 'blocked_users', profileData.id)),
+              getDoc(doc(db, 'profiles', profileData.id, 'blocked_users', user.uid))
             ]);
             
-            setIsFollowing(!!followRes.data);
-            
-            if (blockRes.data) {
-              setHasBlocked(blockRes.data.some(b => b.blocker_id === user.uid));
-              setIsBlocked(blockRes.data.some(b => b.blocker_id === profileData.id));
-            }
+            setIsFollowing(followDoc.exists());
+            setHasBlocked(blockDoc.exists());
+            setIsBlocked(hasBlockedDoc.exists());
           }
         } else {
           setProfile({
@@ -1142,49 +1261,24 @@ const ProfileView = ({ user }: { user: any | null }) => {
         }
 
         // Fetch articles
-        if (isSupabaseConfigured) {
-          const authorId = profileData?.id || author;
-          const authorName = profileData?.username || author;
+        const authorId = profileData?.id || author;
+        const authorName = profileData?.username || author;
 
-          let query = supabase
-            .from('articles')
-            .select('*')
-            .or(`author_id.eq.${authorId},author.eq.${authorName}`)
-            .order('created_at', { ascending: false });
-          
-          if (user?.uid !== authorId) {
-            query = query.eq('is_draft', false);
-          }
-
-          const { data: supabaseArticles } = await query;
-          let mappedArticles = supabaseArticles || [];
-
-          if (mappedArticles.length > 0) {
-            const authorIds = Array.from(new Set(mappedArticles.map(a => a.author_id).filter(Boolean)));
-            if (authorIds.length > 0) {
-              const { data: profilesData } = await supabase
-                .from('profiles')
-                .select('id, badge, is_verified')
-                .in('id', authorIds);
-              
-              if (profilesData) {
-                const profileMap = profilesData.reduce((acc, p) => {
-                  acc[p.id] = p;
-                  return acc;
-                }, {} as Record<string, any>);
-
-                mappedArticles = mappedArticles.map(a => ({
-                  ...a,
-                  author_badge: (a.author_id && profileMap[a.author_id]?.badge) || a.author_badge,
-                  author_is_verified: a.author_id && profileMap[a.author_id]?.is_verified
-                }));
-              }
-            }
-          }
-
-          const mockArticles = MOCK_ARTICLES.filter(a => a.author === authorName || a.author === author);
-          setArticles([...mappedArticles, ...mockArticles]);
+        let q = query(
+          collection(db, 'articles'),
+          where('author_id', '==', authorId),
+          orderBy('created_at', 'desc')
+        );
+        
+        if (user?.uid !== authorId) {
+          q = query(q, where('is_draft', '==', false));
         }
+
+        const articlesSnap = await getDocs(q);
+        let mappedArticles = articlesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Article));
+
+        const mockArticles = MOCK_ARTICLES.filter(a => a.author === authorName || a.author === author);
+        setArticles([...mappedArticles, ...mockArticles]);
       } catch (err) {
         console.error('Error fetching profile data:', err);
       } finally {
@@ -1194,54 +1288,64 @@ const ProfileView = ({ user }: { user: any | null }) => {
 
     fetchData();
 
-    const subscription = supabase
-      .channel(`profile-articles-${author || 'unknown'}`)
-      .on('postgres_changes', { 
-        event: 'UPDATE', 
-        schema: 'public', 
-        table: 'articles' 
-      }, (payload) => {
-        setArticles(prev => prev.map(a => a.id === payload.new.id ? { ...a, ...payload.new } : a));
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(subscription);
-    };
-  }, [author, user]);
+    // Real-time listener for profile articles
+    const authorId = profile?.id || author;
+    if (authorId) {
+      const q = query(
+        collection(db, 'articles'), 
+        where('author_id', '==', authorId),
+        where('is_draft', '==', false)
+      );
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'modified') {
+            setArticles(prev => prev.map(a => a.id === change.doc.id ? { ...a, ...change.doc.data() } : a));
+          }
+        });
+      });
+      return () => unsubscribe();
+    }
+  }, [author, user, profile?.id]);
 
   const handleFollow = async () => {
-    if (!user || !profile || profile.id === 'mock' || !isSupabaseConfigured || followLoading || user.uid === profile.id || hasBlocked || isBlocked) return;
+    if (!user || !profile || profile.id === 'mock' || followLoading || user.uid === profile.id || hasBlocked || isBlocked) return;
 
     setFollowLoading(true);
     try {
+      const batch = writeBatch(db);
+      const followerRef = doc(db, 'profiles', profile.id, 'followers', user.uid);
+      const followingRef = doc(db, 'profiles', user.uid, 'following', profile.id);
+      const profileRef = doc(db, 'profiles', profile.id);
+      const userRef = doc(db, 'profiles', user.uid);
+
       if (isFollowing) {
-        const { error } = await supabase
-          .from('follows')
-          .delete()
-          .eq('follower_id', user.uid)
-          .eq('following_id', profile.id);
-        
-        if (error) throw error;
+        batch.delete(followerRef);
+        batch.delete(followingRef);
+        batch.update(profileRef, { followers_count: increment(-1) });
+        batch.update(userRef, { following_count: increment(-1) });
+        await batch.commit();
         setIsFollowing(false);
         setFollowersCount(prev => Math.max(0, prev - 1));
       } else {
-        const { error } = await supabase
-          .from('follows')
-          .insert([{ follower_id: user.uid, following_id: profile.id }]);
+        batch.set(followerRef, { created_at: serverTimestamp() });
+        batch.set(followingRef, { created_at: serverTimestamp() });
+        batch.update(profileRef, { followers_count: increment(1) });
+        batch.update(userRef, { following_count: increment(1) });
         
-        if (error) throw error;
+        // Create notification
+        const notifRef = doc(collection(db, 'notifications'));
+        batch.set(notifRef, {
+          user_id: profile.id,
+          actor_id: user.uid,
+          type: 'follow',
+          is_read: false,
+          created_at: serverTimestamp()
+        });
+
+        await batch.commit();
         setIsFollowing(true);
         setFollowersCount(prev => prev + 1);
       }
-
-      await Promise.all([
-        supabase.rpc('increment_followers', { profile_id: profile.id, increment: isFollowing ? -1 : 1 }),
-        supabase.rpc('increment_following', { profile_id: user.uid, increment: isFollowing ? -1 : 1 })
-      ]).catch(() => {
-        supabase.from('profiles').update({ followers_count: isFollowing ? followersCount - 1 : followersCount + 1 }).eq('id', profile.id);
-      });
-
     } catch (err: any) {
       console.error('Error handling follow:', err);
     } finally {
@@ -1254,17 +1358,12 @@ const ProfileView = ({ user }: { user: any | null }) => {
 
     setBlockLoading(true);
     try {
+      const blockRef = doc(db, 'profiles', user.uid, 'blocked_users', profile.id);
       if (hasBlocked) {
-        await supabase
-          .from('blocked_users')
-          .delete()
-          .eq('blocker_id', user.uid)
-          .eq('blocked_id', profile.id);
+        await deleteDoc(blockRef);
         setHasBlocked(false);
       } else {
-        await supabase
-          .from('blocked_users')
-          .insert([{ blocker_id: user.uid, blocked_id: profile.id }]);
+        await setDoc(blockRef, { created_at: serverTimestamp() });
         setHasBlocked(true);
         setIsFollowing(false);
       }
@@ -1445,14 +1544,21 @@ const SettingsView = ({ profile, profileLoading, profileError, onUpdate }: { pro
 
   useEffect(() => {
     const fetchBlocked = async () => {
-      if (!auth.currentUser || !isSupabaseConfigured) return;
-      const { data, error } = await supabase
-        .from('blocked_users')
-        .select('*, profile:profiles!blocked_id(*)')
-        .eq('blocker_id', auth.currentUser.uid);
-      
-      if (!error && data) {
-        setBlockedUsers(data as any);
+      if (!auth.currentUser) return;
+      try {
+        const q = collection(db, 'profiles', auth.currentUser.uid, 'blocked_users');
+        const snapshot = await getDocs(q);
+        const blockedData = await Promise.all(snapshot.docs.map(async (d) => {
+          const profileDoc = await getDoc(doc(db, 'profiles', d.id));
+          return {
+            blocked_id: d.id,
+            profile: profileDoc.exists() ? profileDoc.data() : null,
+            ...d.data()
+          };
+        }));
+        setBlockedUsers(blockedData as any);
+      } catch (err) {
+        console.error('Error fetching blocked users:', err);
       }
     };
     fetchBlocked();
@@ -1460,27 +1566,20 @@ const SettingsView = ({ profile, profileLoading, profileError, onUpdate }: { pro
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!profile || loading || !isSupabaseConfigured) {
-      if (!isSupabaseConfigured) setError('Supabase не настроен. Сохранение невозможно.');
-      return;
-    }
+    if (!profile || loading) return;
 
     setLoading(true);
     setSuccess(false);
     setError(null);
 
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          username: username.startsWith('@') ? username : `@${username}`,
-          avatar_url: avatarUrl,
-          banner_url: bannerUrl,
-          bio: bio,
-        })
-        .eq('id', profile.id);
-
-      if (error) throw error;
+      const formattedUsername = username.startsWith('@') ? username : `@${username}`;
+      await updateDoc(doc(db, 'profiles', profile.id), {
+        username: formattedUsername,
+        avatar_url: avatarUrl,
+        banner_url: bannerUrl,
+        bio: bio,
+      });
 
       setSuccess(true);
       onUpdate();
@@ -1530,16 +1629,10 @@ const SettingsView = ({ profile, profileLoading, profileError, onUpdate }: { pro
   };
 
   const handleUnblock = async (blockedId: string) => {
-    if (!auth.currentUser || !isSupabaseConfigured) return;
+    if (!auth.currentUser) return;
 
     try {
-      const { error } = await supabase
-        .from('blocked_users')
-        .delete()
-        .eq('blocker_id', auth.currentUser.uid)
-        .eq('blocked_id', blockedId);
-
-      if (error) throw error;
+      await deleteDoc(doc(db, 'profiles', auth.currentUser.uid, 'blocked_users', blockedId));
       setBlockedUsers(prev => prev.filter(b => b.blocked_id !== blockedId));
     } catch (err: any) {
       setError(err.message);
@@ -1572,9 +1665,9 @@ const SettingsView = ({ profile, profileLoading, profileError, onUpdate }: { pro
           >
             попробовать снова
           </button>
-          {!isSupabaseConfigured && (
+          {!profile && (
             <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400 mt-4">
-              совет: убедитесь, что supabase подключен в настройках проекта.
+              совет: попробуйте перезагрузить страницу.
             </p>
           )}
         </div>
@@ -1906,60 +1999,77 @@ const HomeView = ({ user }: { user: any | null }) => {
   useEffect(() => {
     const fetchBlocked = async () => {
       if (!user) return;
-      const { data } = await supabase
-        .from('blocked_users')
-        .select('blocked_id')
-        .eq('blocker_id', user.uid);
-      if (data) setBlockedUserIds(data.map(b => b.blocked_id));
+      try {
+        const q = collection(db, 'profiles', user.uid, 'blocked_users');
+        const snapshot = await getDocs(q);
+        setBlockedUserIds(snapshot.docs.map(d => d.id));
+      } catch (err) {
+        console.error('Error fetching blocked users:', err);
+      }
     };
     fetchBlocked();
   }, [user]);
 
   useEffect(() => {
     const fetchArticles = async () => {
-      if (!isSupabaseConfigured) {
+      setLoading(true);
+      try {
+        const q = query(
+          collection(db, 'articles'),
+          where('is_draft', '==', false),
+          orderBy('created_at', 'desc')
+        );
+        
+        const snapshot = await getDocs(q);
+        const articlesData = await Promise.all(snapshot.docs.map(async (d) => {
+          const data = d.data();
+          const profileDoc = await getDoc(doc(db, 'profiles', data.author_id));
+          const profileData = profileDoc.exists() ? { id: profileDoc.id, ...profileDoc.data() } as Profile : null;
+          
+          if (profileData?.is_banned) return null;
+
+          return {
+            id: d.id,
+            ...data,
+            author: profileData?.username || data.author,
+            author_badge: profileData?.badge || data.author_badge,
+            author_is_verified: profileData?.is_verified,
+            author_profile: profileData || undefined
+          } as Article;
+        }));
+
+        const validArticles = articlesData.filter(a => a !== null) as Article[];
+        setArticles([...validArticles, ...MOCK_ARTICLES]);
+      } catch (err) {
+        console.error('Error fetching articles:', err);
+      } finally {
         setLoading(false);
-        return;
       }
-
-        const { data, error } = await supabase
-          .from('articles')
-          .select('*, profiles!inner(id, badge, is_verified, is_banned, username, avatar_url)')
-          .eq('is_draft', false)
-          .eq('profiles.is_banned', false)
-          .order('created_at', { ascending: false });
-
-        if (error) {
-          console.error('Error fetching articles:', error);
-        } else if (data) {
-          const mappedArticles = data.map(a => ({
-            ...a,
-            author: (a.profiles as any)?.username || a.author,
-            author_badge: (a.profiles as any)?.badge || a.author_badge,
-            author_is_verified: (a.profiles as any)?.is_verified,
-            author_profile: a.profiles as any
-          }));
-          setArticles([...mappedArticles, ...MOCK_ARTICLES]);
-        }
-      setLoading(false);
     };
 
     fetchArticles();
 
-    const subscription = supabase
-      .channel('articles-realtime')
-      .on('postgres_changes', { 
-        event: 'UPDATE', 
-        schema: 'public', 
-        table: 'articles' 
-      }, (payload) => {
-        setArticles(prev => prev.map(a => a.id === payload.new.id ? { ...a, ...payload.new } : a));
-      })
-      .subscribe();
+    const q = query(collection(db, 'articles'), where('is_draft', '==', false));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      snapshot.docChanges().forEach(async (change) => {
+        if (change.type === 'modified') {
+          const data = change.doc.data();
+          const profileDoc = await getDoc(doc(db, 'profiles', data.author_id));
+          const profileData = profileDoc.exists() ? { id: profileDoc.id, ...profileDoc.data() } as Profile : null;
+          
+          setArticles(prev => prev.map(a => a.id === change.doc.id ? { 
+            ...a, 
+            ...data,
+            author: profileData?.username || data.author,
+            author_badge: profileData?.badge || data.author_badge,
+            author_is_verified: profileData?.is_verified,
+            author_profile: profileData || undefined
+          } as Article : a));
+        }
+      });
+    });
 
-    return () => {
-      supabase.removeChannel(subscription);
-    };
+    return () => unsubscribe();
   }, []);
 
   const filteredArticles = articles.filter(article => {
@@ -2176,28 +2286,31 @@ const ArticleEditor = ({ user, profile }: { user: any | null, profile: Profile |
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (id && isSupabaseConfigured) {
+    if (id) {
       const fetchArticle = async () => {
-        const { data, error } = await supabase
-          .from('articles')
-          .select('*')
-          .eq('id', id)
-          .single();
-        
-        if (data) {
-          if (user && data.author_id !== user.uid) {
-            setError('Вы не можете редактировать чужую статью');
-            setTimeout(() => navigate('/'), 2000);
-            return;
+        try {
+          const docRef = doc(db, 'articles', id);
+          const docSnap = await getDoc(docRef);
+          
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            if (user && data.author_id !== user.uid) {
+              setError('Вы не можете редактировать чужую статью');
+              setTimeout(() => navigate('/'), 2000);
+              return;
+            }
+            setTitle(data.title);
+            setExcerpt(data.excerpt);
+            setContent(data.content);
+            setImage(data.image);
+            setCategory(data.category);
+            setEditCount(data.edit_count || 0);
           }
-          setTitle(data.title);
-          setExcerpt(data.excerpt);
-          setContent(data.content);
-          setImage(data.image);
-          setCategory(data.category);
-          setEditCount(data.edit_count || 0);
+        } catch (err) {
+          console.error('Error fetching article:', err);
+        } finally {
+          setInitialLoading(false);
         }
-        setInitialLoading(false);
       };
       fetchArticle();
     }
@@ -2266,44 +2379,37 @@ const ArticleEditor = ({ user, profile }: { user: any | null, profile: Profile |
       image,
       category,
       read_time: `${Math.ceil(content.split(' ').length / 200)} мин`,
+      updated_at: serverTimestamp(),
     };
 
-    if (id) {
-      // Update
-      const { error } = await supabase
-        .from('articles')
-        .update({
+    try {
+      if (id) {
+        // Update
+        await updateDoc(doc(db, 'articles', id), {
           ...articleData,
           edit_count: editCount + 1,
           is_draft: isDraft
-        })
-        .eq('id', id);
-
-      if (error) {
-        console.error('Error updating article:', error);
-        setError(`Ошибка при обновлении статьи: ${error.message}`);
-      } else {
+        });
         navigate(isDraft ? `/profile/${user.uid}` : `/article/${id}`);
-      }
-    } else {
-      // Insert
-      const { error } = await supabase.from('articles').insert([
-        {
+      } else {
+        // Insert
+        const newArticleRef = doc(collection(db, 'articles'));
+        await setDoc(newArticleRef, {
           ...articleData,
           author: profile.username,
           author_id: user.uid,
           date: new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }),
+          created_at: serverTimestamp(),
           edit_count: 0,
-          is_draft: isDraft
-        }
-      ]);
-
-      if (error) {
-        console.error('Error creating article:', error);
-        setError(`Ошибка при создании статьи: ${error.message}`);
-      } else {
+          is_draft: isDraft,
+          likes_count: 0,
+          dislikes_count: 0,
+          views_count: 0
+        });
         navigate(isDraft ? `/profile/${user.uid}` : '/');
       }
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.WRITE, id ? `articles/${id}` : 'articles');
     }
     setLoading(false);
   };
@@ -2474,6 +2580,109 @@ const ArticleEditor = ({ user, profile }: { user: any | null, profile: Profile |
   );
 };
 
+const NotificationsView = ({ notifications, onMarkRead }: { notifications: Notification[], onMarkRead: () => void }) => {
+  const navigate = useNavigate();
+
+  const getNotificationContent = (n: Notification) => {
+    switch (n.type) {
+      case 'comment':
+        return (
+          <>
+            <span className="font-bold text-zinc-900 dark:text-zinc-100">{n.actor_profile?.username || 'Пользователь'}</span>
+            {' '}прокомментировал вашу статью{' '}
+            <span className="font-bold text-emerald-600 dark:text-emerald-400">"{n.article_title || 'Без названия'}"</span>
+          </>
+        );
+      case 'reply':
+        return (
+          <>
+            <span className="font-bold text-zinc-900 dark:text-zinc-100">{n.actor_profile?.username || 'Пользователь'}</span>
+            {' '}ответил на ваш комментарий в статье{' '}
+            <span className="font-bold text-emerald-600 dark:text-emerald-400">"{n.article_title || 'Без названия'}"</span>
+          </>
+        );
+      case 'like':
+        return (
+          <>
+            <span className="font-bold text-zinc-900 dark:text-zinc-100">{n.actor_profile?.username || 'Пользователь'}</span>
+            {' '}оценил вашу статью{' '}
+            <span className="font-bold text-emerald-600 dark:text-emerald-400">"{n.article_title || 'Без названия'}"</span>
+          </>
+        );
+      case 'follow':
+        return (
+          <>
+            <span className="font-bold text-zinc-900 dark:text-zinc-100">{n.actor_profile?.username || 'Пользователь'}</span>
+            {' '}подписался на вас
+          </>
+        );
+      default:
+        return 'Новое уведомление';
+    }
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto py-8">
+      <div className="flex items-center justify-between mb-8">
+        <h2 className="text-3xl font-bold dark:text-zinc-100">Уведомления</h2>
+        {notifications.some(n => !n.is_read) && (
+          <button 
+            onClick={onMarkRead}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all text-sm font-bold"
+          >
+            <CheckCheck className="w-4 h-4" />
+            прочитать все
+          </button>
+        )}
+      </div>
+
+      <div className="space-y-4">
+        {notifications.length === 0 ? (
+          <div className="text-center py-20 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800">
+            <Bell className="w-12 h-12 text-zinc-300 dark:text-zinc-700 mx-auto mb-4" />
+            <p className="text-zinc-500 dark:text-zinc-400">у вас пока нет уведомлений</p>
+          </div>
+        ) : (
+          notifications.map(n => (
+            <motion.div
+              key={n.id}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              onClick={() => n.article_id && navigate(`/article/${n.article_id}`)}
+              className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+                n.is_read 
+                  ? 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 opacity-60' 
+                  : 'bg-white dark:bg-zinc-900 border-emerald-200 dark:border-emerald-800 shadow-lg shadow-emerald-500/5'
+              }`}
+            >
+              <div className="flex gap-4">
+                <div className="relative">
+                  <img 
+                    src={n.actor_profile?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${n.actor_id}`}
+                    alt=""
+                    className="w-10 h-10 rounded-full object-cover"
+                  />
+                  {!n.is_read && (
+                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white dark:border-zinc-900" />
+                  )}
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                    {getNotificationContent(n)}
+                  </p>
+                  <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-1 font-mono uppercase tracking-widest">
+                    {new Date(n.created_at).toLocaleString('ru-RU')}
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+};
+
 const AdminView = () => {
   const [password, setPassword] = useState('');
   const [isAuthorized, setIsAuthorized] = useState(false);
@@ -2504,32 +2713,30 @@ const AdminView = () => {
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      const [articlesRes, profilesRes, commentsRes] = await Promise.all([
-        supabase.from('articles').select('*').order('created_at', { ascending: false }),
-        supabase.from('profiles').select('*').order('created_at', { ascending: false }),
-        supabase.from('comments').select('*').order('created_at', { ascending: false })
+      const [articlesSnap, profilesSnap, commentsSnap] = await Promise.all([
+        getDocs(query(collection(db, 'articles'), orderBy('created_at', 'desc'))),
+        getDocs(query(collection(db, 'profiles'), orderBy('created_at', 'desc'))),
+        getDocs(query(collectionGroup(db, 'comments'), orderBy('created_at', 'desc')))
       ]);
 
-      if (articlesRes.error) throw articlesRes.error;
-      if (profilesRes.error) throw profilesRes.error;
-      if (commentsRes.error) throw commentsRes.error;
-
-      if (articlesRes.data) setArticles(articlesRes.data);
-      if (profilesRes.data) setProfiles(profilesRes.data);
+      const articlesData = articlesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Article));
+      const profilesData = profilesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Profile));
       
-      if (commentsRes.data) {
-        // Join comments with articles and profiles in memory
-        const joinedComments = commentsRes.data.map(comment => {
-          const article = articlesRes.data?.find(a => a.id === comment.article_id);
-          const profile = profilesRes.data?.find(p => p.id === comment.user_id);
-          return {
-            ...comment,
-            articles: article ? { title: article.title } : null,
-            profiles: profile ? { username: profile.username } : null
-          };
-        });
-        setComments(joinedComments);
-      }
+      const joinedComments = commentsSnap.docs.map(doc => {
+        const data = doc.data();
+        const article = articlesData.find(a => a.id === data.article_id);
+        const profile = profilesData.find(p => p.id === data.user_id);
+        return {
+          id: doc.id,
+          ...data,
+          articles: article ? { title: article.title } : null,
+          profiles: profile ? { username: profile.username } : null
+        };
+      });
+      
+      setArticles(articlesData);
+      setProfiles(profilesData);
+      setComments(joinedComments);
       
       setToast({ message: 'Данные обновлены!', type: 'success' });
     } catch (err: any) {
@@ -2548,70 +2755,77 @@ const AdminView = () => {
   }, [toast]);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      setCurrentUser(data.user);
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
     });
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    if (isAuthorized) {
+    if (isAuthorized && currentUser && ADMIN_EMAILS.includes(currentUser.email) && currentUser.emailVerified) {
       fetchAllData();
 
-      // Subscribe to articles changes for real-time views/likes
-      const articlesSub = supabase
-        .channel('admin-articles-realtime')
-        .on('postgres_changes', { 
-          event: 'UPDATE', 
-          schema: 'public', 
-          table: 'articles' 
-        }, (payload) => {
-          setArticles(prev => prev.map(a => a.id === payload.new.id ? { ...a, ...payload.new } : a));
-        })
-        .subscribe();
-
-      // Subscribe to profiles changes
-      const profilesSub = supabase
-        .channel('admin-profiles-realtime')
-        .on('postgres_changes', { 
-          event: '*', 
-          schema: 'public', 
-          table: 'profiles' 
-        }, (payload) => {
-          if (payload.eventType === 'UPDATE') {
-            setProfiles(prev => prev.map(p => p.id === payload.new.id ? { ...p, ...payload.new } : p));
-          } else if (payload.eventType === 'DELETE') {
-            setProfiles(prev => prev.filter(p => p.id !== payload.old.id));
-          } else if (payload.eventType === 'INSERT') {
-            setProfiles(prev => [payload.new as Profile, ...prev]);
+      // Subscribe to articles
+      const unsubscribeArticles = onSnapshot(collection(db, 'articles'), (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'modified') {
+            setArticles(prev => prev.map(a => a.id === change.doc.id ? { ...a, ...change.doc.data() } : a));
+          } else if (change.type === 'removed') {
+            setArticles(prev => prev.filter(a => a.id !== change.doc.id));
+          } else if (change.type === 'added') {
+            setArticles(prev => {
+              if (prev.some(a => a.id === change.doc.id)) return prev;
+              return [{ id: change.doc.id, ...change.doc.data() } as Article, ...prev];
+            });
           }
-        })
-        .subscribe();
+        });
+      }, (err) => {
+        console.error('Admin: Articles subscription error:', err);
+      });
 
-      // Subscribe to comments changes
-      const commentsSub = supabase
-        .channel('admin-comments-realtime')
-        .on('postgres_changes', { 
-          event: '*', 
-          schema: 'public', 
-          table: 'comments' 
-        }, (payload) => {
-          if (payload.eventType === 'UPDATE') {
-            setComments(prev => prev.map(c => c.id === payload.new.id ? { ...c, ...payload.new } : c));
-          } else if (payload.eventType === 'DELETE') {
-            setComments(prev => prev.filter(c => c.id !== payload.old.id));
-          } else if (payload.eventType === 'INSERT') {
-            setComments(prev => [payload.new as Comment, ...prev]);
+      // Subscribe to profiles
+      const unsubscribeProfiles = onSnapshot(collection(db, 'profiles'), (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'modified') {
+            setProfiles(prev => prev.map(p => p.id === change.doc.id ? { ...p, ...change.doc.data() } : p));
+          } else if (change.type === 'removed') {
+            setProfiles(prev => prev.filter(p => p.id !== change.doc.id));
+          } else if (change.type === 'added') {
+            setProfiles(prev => {
+              if (prev.some(p => p.id === change.doc.id)) return prev;
+              return [{ id: change.doc.id, ...change.doc.data() } as Profile, ...prev];
+            });
           }
-        })
-        .subscribe();
+        });
+      }, (err) => {
+        console.error('Admin: Profiles subscription error:', err);
+      });
+
+      // Subscribe to comments
+      const unsubscribeComments = onSnapshot(collectionGroup(db, 'comments'), (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'modified') {
+            setComments(prev => prev.map(c => c.id === change.doc.id ? { ...c, ...change.doc.data() } : c));
+          } else if (change.type === 'removed') {
+            setComments(prev => prev.filter(c => c.id !== change.doc.id));
+          } else if (change.type === 'added') {
+            setComments(prev => {
+              if (prev.some(c => c.id === change.doc.id)) return prev;
+              return [{ id: change.doc.id, ...change.doc.data() } as any, ...prev];
+            });
+          }
+        });
+      }, (err) => {
+        console.error('Admin: Comments subscription error:', err);
+      });
 
       return () => {
-        supabase.removeChannel(articlesSub);
-        supabase.removeChannel(profilesSub);
-        supabase.removeChannel(commentsSub);
+        unsubscribeArticles();
+        unsubscribeProfiles();
+        unsubscribeComments();
       };
     }
-  }, [isAuthorized]);
+  }, [isAuthorized, currentUser]);
 
   if (isAuthorized && !currentUser) {
     return (
@@ -2620,7 +2834,7 @@ const AdminView = () => {
           <AlertIcon className="w-12 h-12 text-amber-500 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">Нужна авторизация</h2>
           <p className="text-zinc-600 dark:text-zinc-400 mb-6">
-            Вы ввели пароль от админки, но не вошли в свой аккаунт Supabase. 
+            Вы ввели пароль от админки, но не вошли в свой аккаунт Firebase. 
             Пожалуйста, войдите под одной из разрешенных почт (например, <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100">{ADMIN_EMAILS[0]}</span>), чтобы база данных разрешила изменения.
           </p>
           <button 
@@ -2634,7 +2848,27 @@ const AdminView = () => {
     );
   }
 
-  if (isAuthorized && !ADMIN_EMAILS.includes(currentUser?.email)) {
+  if (isAuthorized && currentUser && !currentUser.emailVerified) {
+    return (
+      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white dark:bg-zinc-900 rounded-3xl p-8 border border-zinc-200 dark:border-zinc-800 text-center">
+          <Mail className="w-12 h-12 text-amber-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">Почта не подтверждена</h2>
+          <p className="text-zinc-600 dark:text-zinc-400 mb-6">
+            Для доступа к панели администратора ваша почта должна быть подтверждена.
+          </p>
+          <button 
+            onClick={() => auth.signOut().then(() => navigate('/auth'))}
+            className="w-full py-3 rounded-2xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-bold"
+          >
+            Вернуться к авторизации
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (isAuthorized && currentUser && !ADMIN_EMAILS.includes(currentUser.email)) {
     return (
       <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white dark:bg-zinc-900 rounded-3xl p-8 border border-zinc-200 dark:border-zinc-800 text-center">
@@ -2645,7 +2879,7 @@ const AdminView = () => {
             У этого аккаунта нет прав администратора в базе данных.
           </p>
           <button 
-            onClick={() => supabase.auth.signOut().then(() => navigate('/auth'))}
+            onClick={() => auth.signOut().then(() => navigate('/auth'))}
             className="w-full py-3 rounded-2xl bg-red-600 text-white font-bold"
           >
             Выйти и зайти под админом
@@ -2668,10 +2902,7 @@ const AdminView = () => {
     if (!confirm('Вы уверены, что хотите удалить эту статью?')) return;
     setActionLoading(id);
     try {
-      const { error, count } = await supabase.from('articles').delete({ count: 'exact' }).eq('id', id);
-      if (error) throw error;
-      if (count === 0) throw new Error('У вас нет прав на удаление или статья не найдена.');
-      
+      await deleteDoc(doc(db, 'articles', id));
       setArticles(articles.filter(a => a.id !== id));
       setToast({ message: 'Статья удалена!', type: 'success' });
     } catch (error: any) {
@@ -2684,13 +2915,9 @@ const AdminView = () => {
 
   const handleDeleteProfile = async (id: string) => {
     if (!confirm('Вы уверены, что хотите удалить этот профиль?')) return;
-    console.log('Admin: Deleting profile:', id);
     setActionLoading(id);
     try {
-      const { error, count } = await supabase.from('profiles').delete({ count: 'exact' }).eq('id', id);
-      if (error) throw error;
-      if (count === 0) throw new Error('У вас нет прав на удаление или профиль не найден.');
-      
+      await deleteDoc(doc(db, 'profiles', id));
       setProfiles(prev => prev.filter(p => p.id !== id));
       setToast({ message: 'Профиль удален!', type: 'success' });
     } catch (error: any) {
@@ -2703,15 +2930,14 @@ const AdminView = () => {
 
   const handleDeleteComment = async (id: string) => {
     if (!confirm('Вы уверены, что хотите удалить этот комментарий?')) return;
-    console.log('Admin: Deleting comment:', id);
     setActionLoading(id);
     try {
-      const { error, count } = await supabase.from('comments').delete({ count: 'exact' }).eq('id', id);
-      if (error) throw error;
-      if (count === 0) throw new Error('У вас нет прав на удаление или комментарий не найден.');
-      
-      setComments(prev => prev.filter(c => c.id !== id));
-      setToast({ message: 'Комментарий удален!', type: 'success' });
+      const comment = comments.find(c => c.id === id);
+      if (comment && comment.article_id) {
+        await deleteDoc(doc(db, 'articles', comment.article_id, 'comments', id));
+        setComments(prev => prev.filter(c => c.id !== id));
+        setToast({ message: 'Комментарий удален!', type: 'success' });
+      }
     } catch (error: any) {
       console.error('Admin: Error deleting comment:', error);
       setToast({ message: 'Ошибка: ' + error.message, type: 'error' });
@@ -2721,17 +2947,9 @@ const AdminView = () => {
   };
 
   const toggleDraft = async (article: Article) => {
-    console.log('Admin: Toggling draft for:', article.id);
     setActionLoading(article.id);
     try {
-      const { error, count } = await supabase
-        .from('articles')
-        .update({ is_draft: !article.is_draft }, { count: 'exact' })
-        .eq('id', article.id);
-      
-      if (error) throw error;
-      if (count === 0) throw new Error('У вас нет прав на изменение или статья не найдена.');
-      
+      await updateDoc(doc(db, 'articles', article.id), { is_draft: !article.is_draft });
       setArticles(prev => prev.map(a => a.id === article.id ? { ...a, is_draft: !a.is_draft } : a));
       setToast({ 
         message: article.is_draft ? 'Статья опубликована!' : 'Статья переведена в черновики!', 
@@ -2746,24 +2964,15 @@ const AdminView = () => {
   };
 
   const handleApplyChanges = async (id: string) => {
-    console.log('Admin: Applying article changes for:', id);
     setActionLoading(id);
     try {
-      const { error, count } = await supabase
-        .from('articles')
-        .update({ 
-          title: editTitle,
-          category: editCategory
-        }, { count: 'exact' })
-        .eq('id', id);
-      
-      if (error) throw error;
-      if (count === 0) throw new Error('У вас нет прав на изменение или статья не найдена.');
-      
+      await updateDoc(doc(db, 'articles', id), { 
+        title: editTitle,
+        category: editCategory
+      });
       setArticles(prev => prev.map(a => a.id === id ? { ...a, title: editTitle, category: editCategory } : a));
       setEditingArticleId(null);
       setToast({ message: 'Статья обновлена!', type: 'success' });
-      await fetchAllData(); // Refresh to be sure
     } catch (error: any) {
       console.error('Admin: Error updating article:', error);
       setToast({ message: 'Ошибка: ' + error.message, type: 'error' });
@@ -2779,27 +2988,19 @@ const AdminView = () => {
   };
 
   const handleApplyProfileChanges = async (id: string) => {
-    console.log('Admin: Applying profile changes for:', id);
     setActionLoading(id);
     try {
       const formattedUsername = editUsername.startsWith('@') ? editUsername : `@${editUsername}`;
-      const { error, count } = await supabase
-        .from('profiles')
-        .update({ 
-          username: formattedUsername,
-          bio: editBio,
-          badge: editBadge,
-          is_verified: editIsVerified
-        }, { count: 'exact' })
-        .eq('id', id);
-      
-      if (error) throw error;
-      if (count === 0) throw new Error('У вас нет прав на изменение или профиль не найден.');
+      await updateDoc(doc(db, 'profiles', id), { 
+        username: formattedUsername,
+        bio: editBio,
+        badge: editBadge,
+        is_verified: editIsVerified
+      });
       
       setProfiles(prev => prev.map(p => p.id === id ? { ...p, username: formattedUsername, bio: editBio, badge: editBadge, is_verified: editIsVerified } : p));
       setEditingProfileId(null);
       setToast({ message: 'Профиль обновлен!', type: 'success' });
-      await fetchAllData(); // Refresh to be sure
     } catch (error: any) {
       console.error('Admin: Error updating profile:', error);
       setToast({ message: 'Ошибка: ' + error.message, type: 'error' });
@@ -2817,23 +3018,14 @@ const AdminView = () => {
   };
 
   const toggleBan = async (profile: Profile) => {
-    console.log('Admin: Toggling ban for:', profile.id);
     setActionLoading(profile.id);
     try {
-      const { error, count } = await supabase
-        .from('profiles')
-        .update({ is_banned: !profile.is_banned }, { count: 'exact' })
-        .eq('id', profile.id);
-      
-      if (error) throw error;
-      if (count === 0) throw new Error('У вас нет прав на это действие (RLS блокирует обновление).');
-      
+      await updateDoc(doc(db, 'profiles', profile.id), { is_banned: !profile.is_banned });
       setProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, is_banned: !profile.is_banned } : p));
       setToast({ 
         message: profile.is_banned ? 'Пользователь разбанен!' : 'Пользователь забанен!', 
         type: 'success' 
       });
-      await fetchAllData(); // Refresh to be sure
     } catch (error: any) {
       console.error('Admin: Error toggling ban:', error);
       setToast({ message: 'Ошибка: ' + error.message, type: 'error' });
@@ -2843,23 +3035,17 @@ const AdminView = () => {
   };
 
   const handleApplyCommentChanges = async (id: string) => {
-    console.log('Admin: Applying comment changes for:', id);
     setActionLoading(id);
     try {
-      const { error, count } = await supabase
-        .from('comments')
-        .update({ 
+      const comment = comments.find(c => c.id === id);
+      if (comment && comment.article_id) {
+        await updateDoc(doc(db, 'articles', comment.article_id, 'comments', id), { 
           content: editCommentContent
-        }, { count: 'exact' })
-        .eq('id', id);
-      
-      if (error) throw error;
-      if (count === 0) throw new Error('У вас нет прав на изменение или комментарий не найден.');
-      
-      setComments(prev => prev.map(c => c.id === id ? { ...c, content: editCommentContent } : c));
-      setEditingCommentId(null);
-      setToast({ message: 'Комментарий обновлен!', type: 'success' });
-      await fetchAllData(); // Refresh to be sure
+        });
+        setComments(prev => prev.map(c => c.id === id ? { ...c, content: editCommentContent } : c));
+        setEditingCommentId(null);
+        setToast({ message: 'Комментарий обновлен!', type: 'success' });
+      }
     } catch (error: any) {
       console.error('Admin: Error updating comment:', error);
       setToast({ message: 'Ошибка: ' + error.message, type: 'error' });
@@ -3509,6 +3695,20 @@ export default function App() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [firebaseError, setFirebaseError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function testConnection() {
+      try {
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if(error instanceof Error && error.message.includes('the client is offline')) {
+          setFirebaseError("Please check your Firebase configuration. The client is offline.");
+        }
+      }
+    }
+    testConnection();
+  }, []);
 
   useEffect(() => {
     if (isDark) {
@@ -3543,72 +3743,12 @@ export default function App() {
     setProfileLoading(true);
     setProfileError(null);
 
-    if (!isSupabaseConfigured) {
-      // Mock profile for demo mode
-      setProfile({
-        id: userId,
-        username: typeof userOrId !== 'string' ? userOrId.displayName || 'Demo User' : 'Demo User',
-        avatar_url: typeof userOrId !== 'string' ? userOrId.photoURL || '' : '',
-        banner_url: '',
-        bio: 'Это демо-профиль. Подключите Supabase для сохранения данных.',
-        created_at: new Date().toISOString()
-      });
-      setProfileLoading(false);
-      return;
-    }
-
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
+      const docRef = doc(db, 'profiles', userId);
+      const docSnap = await getDoc(docRef);
       
-      if (error) {
-        if (error.code === 'PGRST116') {
-          // Profile doesn't exist, create one
-          let email = '';
-          let displayName = '';
-          
-          if (typeof userOrId !== 'string') {
-            email = userOrId.email || '';
-            displayName = userOrId.displayName || '';
-          } else if (user) {
-            email = user.email || '';
-            displayName = user.displayName || '';
-          }
-
-          const username = displayName || (email ? `@${email.split('@')[0]}` : `@user_${userId.slice(0, 8)}`);
-          
-          const { data: newProfile, error: createError } = await supabase
-            .from('profiles')
-            .insert([{ id: userId, username }])
-            .select()
-            .single();
-          
-          if (createError) {
-            console.error('Error creating profile for new user:', createError);
-            setProfileError('Ошибка при создании профиля. Пожалуйста, убедитесь, что таблица profiles создана в Supabase.');
-          } else {
-            setProfile(newProfile);
-          }
-        } else {
-          console.error('Error fetching profile:', error);
-          setProfileError(`Ошибка при получении профиля: ${error.message}`);
-          
-          // Fallback to basic info so the app doesn't break completely
-          if (typeof userOrId !== 'string') {
-            setProfile({
-              id: userId,
-              username: userOrId.displayName || `@user_${userId.slice(0, 8)}`,
-              avatar_url: userOrId.photoURL || '',
-              banner_url: '',
-              bio: 'Профиль загружен в ограниченном режиме из-за ошибки базы данных.',
-              created_at: new Date().toISOString()
-            });
-          }
-        }
-      } else {
+      if (docSnap.exists()) {
+        const data = docSnap.data() as Profile;
         setProfile(data);
         // Check if user is banned
         if (data?.is_banned) {
@@ -3617,32 +3757,136 @@ export default function App() {
           setUser(null);
           setProfile(null);
         }
+      } else {
+        // Profile doesn't exist, create one
+        let email = '';
+        let displayName = '';
+        
+        if (typeof userOrId !== 'string') {
+          email = userOrId.email || '';
+          displayName = userOrId.displayName || '';
+        } else if (user) {
+          email = user.email || '';
+          displayName = user.displayName || '';
+        }
+
+        const username = displayName 
+          ? `@${displayName.replace(/^@/, '').replace(/\s+/g, '').replace(/[^a-zA-Z0-9_]/g, '')}`
+          : (email ? `@${email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')}` : `@user_${userId.slice(0, 8)}`);
+        
+        const newProfile = { 
+          id: userId, 
+          username,
+          avatar_url: typeof userOrId !== 'string' ? userOrId.photoURL || '' : '',
+          banner_url: '',
+          bio: '',
+          created_at: serverTimestamp(),
+          is_verified: false,
+          is_banned: false,
+          badge: null
+        };
+
+        await setDoc(doc(db, 'profiles', userId), newProfile);
+        setProfile(newProfile as any);
       }
     } catch (err: any) {
-      console.error('Unexpected error in fetchProfile:', err);
-      setProfileError(err.message || 'Произошла непредвиденная ошибка');
+      console.error('Error fetching profile:', err);
+      setProfileError(`Ошибка при получении профиля: ${err.message}`);
     } finally {
       setProfileLoading(false);
     }
   };
 
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      fetchNotifications();
+      
+      const q = query(
+        collection(db, 'notifications'),
+        where('user_id', '==', user.uid)
+      );
+      
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            fetchNotifications();
+          }
+        });
+      });
+
+      return () => unsubscribe();
+    }
+  }, [user]);
+
+  const fetchNotifications = async () => {
+    if (!user) return;
+    
+    try {
+      const q = query(
+        collection(db, 'notifications'),
+        where('user_id', '==', user.uid),
+        orderBy('created_at', 'desc'),
+        limit(20)
+      );
+
+      const snapshot = await getDocs(q);
+      const notificationsData = await Promise.all(snapshot.docs.map(async (d) => {
+        const data = d.data();
+        const actorDoc = await getDoc(doc(db, 'profiles', data.actor_id));
+        const actorData = actorDoc.exists() ? actorDoc.data() : null;
+        
+        let articleTitle = '';
+        if (data.article_id) {
+          const articleDoc = await getDoc(doc(db, 'articles', data.article_id));
+          articleTitle = articleDoc.exists() ? articleDoc.data().title : '';
+        }
+
+        return {
+          id: d.id,
+          ...data,
+          actor_profile: actorData,
+          article_title: articleTitle
+        };
+      }));
+      
+      setNotifications(notificationsData as any);
+    } catch (err) {
+      console.error('Error fetching notifications:', err);
+    }
+  };
+
+  const markAllAsRead = async () => {
+    if (!user) return;
+    try {
+      const q = query(
+        collection(db, 'notifications'),
+        where('user_id', '==', user.uid),
+        where('is_read', '==', false)
+      );
+      const snapshot = await getDocs(q);
+      const batch = writeBatch(db);
+      snapshot.docs.forEach((d) => {
+        batch.update(d.ref, { is_read: true });
+      });
+      await batch.commit();
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+    } catch (err) {
+      console.error('Error marking notifications as read:', err);
+    }
+  };
+
+  const unreadCount = notifications.filter(n => !n.is_read).length;
+
   return (
     <Router>
       <div className={`min-h-screen transition-colors duration-300 bg-zinc-50 dark:bg-zinc-950 selection:bg-zinc-900 selection:text-white dark:selection:bg-zinc-100 dark:selection:text-zinc-900 ${isDark ? 'dark' : ''}`}>
-        {!isSupabaseConfigured && (
-          <div className="bg-amber-500/10 border-b border-amber-500/20 py-2 px-4">
-            <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400 flex items-center gap-2">
-                <AlertIcon className="w-3 h-3" />
-                режим демо: база данных не подключена.
-              </p>
-              <Link 
-                to="/auth" 
-                className="text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full bg-amber-500 text-white hover:bg-amber-600 transition-colors"
-              >
-                подключить supabase
-              </Link>
-            </div>
+        {firebaseError && (
+          <div className="bg-red-500 text-white px-4 py-2 text-center text-sm font-bold flex items-center justify-center gap-2 sticky top-0 z-[100]">
+            <AlertTriangle className="w-4 h-4" />
+            {firebaseError}
           </div>
         )}
         <Navbar 
@@ -3650,6 +3894,7 @@ export default function App() {
           toggleDark={() => setIsDark(!isDark)} 
           user={user}
           profile={profile}
+          notificationsCount={unreadCount}
         />
         
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -3661,6 +3906,7 @@ export default function App() {
               <Route path="/create" element={user ? <ArticleEditor user={user} profile={profile} /> : <Navigate to="/auth" />} />
               <Route path="/edit/:id" element={user ? <ArticleEditor user={user} profile={profile} /> : <Navigate to="/auth" />} />
               <Route path="/settings" element={user ? <SettingsView profile={profile} profileLoading={profileLoading} profileError={profileError} onUpdate={() => fetchProfile(user)} /> : <Navigate to="/auth" />} />
+              <Route path="/notifications" element={user ? <NotificationsView notifications={notifications} onMarkRead={markAllAsRead} /> : <Navigate to="/auth" />} />
               <Route path="/admin" element={<AdminView />} />
               <Route path="/terms" element={<TermsView />} />
               <Route path="/auth" element={user ? <Navigate to="/" /> : <Auth />} />

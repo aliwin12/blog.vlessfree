@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { supabase } from '../lib/supabase';
-import { auth, googleProvider } from '../lib/firebase';
+import { auth, googleProvider, db } from '../lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
@@ -33,6 +33,8 @@ export const Auth = () => {
     try {
       if (isSignUp) {
         if (username.length < 3) throw new Error('Имя пользователя должно быть не менее 3 символов');
+        if (username.includes(' ')) throw new Error('Имя пользователя не должно содержать пробелы');
+        if (!/^[a-zA-Z0-9_@]+$/.test(username)) throw new Error('Имя пользователя может содержать только латинские буквы, цифры и нижнее подчеркивание');
         
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
@@ -61,14 +63,11 @@ export const Auth = () => {
         // Force token refresh to trigger App.tsx listener
         await user.getIdToken(true);
 
-        // Check ban status in Supabase using Firebase UID
-        const { data: pData } = await supabase
-          .from('profiles')
-          .select('is_banned')
-          .eq('id', user.uid)
-          .single();
+        // Check ban status in Firestore using Firebase UID
+        const profileDoc = await getDoc(doc(db, 'profiles', user.uid));
+        const profileData = profileDoc.exists() ? profileDoc.data() : null;
         
-        if (pData?.is_banned) {
+        if (profileData?.is_banned) {
           await auth.signOut();
           throw new Error('Ваш аккаунт заблокирован. Доступ запрещен.');
         }
@@ -142,14 +141,11 @@ export const Auth = () => {
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
 
-      // Check ban status in Supabase
-      const { data: pData } = await supabase
-        .from('profiles')
-        .select('is_banned')
-        .eq('id', user.uid)
-        .single();
+      // Check ban status in Firestore
+      const profileDoc = await getDoc(doc(db, 'profiles', user.uid));
+      const profileData = profileDoc.exists() ? profileDoc.data() : null;
       
-      if (pData?.is_banned) {
+      if (profileData?.is_banned) {
         await auth.signOut();
         throw new Error('Ваш аккаунт заблокирован. Доступ запрещен.');
       }

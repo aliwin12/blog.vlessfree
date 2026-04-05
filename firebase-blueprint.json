@@ -1,0 +1,147 @@
+{
+  "entities": {
+    "Profile": {
+      "title": "Profile",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "avatar_url": { "type": "string" },
+        "banner_url": { "type": "string" },
+        "bio": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "is_banned": { "type": "boolean" },
+        "followers_count": { "type": "integer" },
+        "following_count": { "type": "integer" },
+        "badge": { "type": "string" },
+        "is_verified": { "type": "boolean" }
+      },
+      "required": ["id", "username", "created_at"]
+    },
+    "Article": {
+      "title": "Article",
+      "description": "Article content and metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "author_id": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "excerpt": { "type": "string" },
+        "image": { "type": "string" },
+        "category": { "type": "string" },
+        "is_draft": { "type": "boolean" },
+        "author": { "type": "string" },
+        "date": { "type": "string" },
+        "read_time": { "type": "string" },
+        "edit_count": { "type": "integer" },
+        "views_count": { "type": "integer" },
+        "likes_count": { "type": "integer" },
+        "dislikes_count": { "type": "integer" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "author_id", "title", "content", "created_at"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "Comment on an article",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "article_id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "content": { "type": "string" },
+        "parent_id": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "article_id", "user_id", "content", "created_at"]
+    },
+    "ArticleReaction": {
+      "title": "ArticleReaction",
+      "description": "User reaction to an article",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "article_id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "type": { "type": "string", "enum": ["like", "dislike"] },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "article_id", "user_id", "type", "created_at"]
+    },
+    "Follow": {
+      "title": "Follow",
+      "description": "User following relationship",
+      "type": "object",
+      "properties": {
+        "follower_id": { "type": "string" },
+        "following_id": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["follower_id", "following_id", "created_at"]
+    },
+    "BlockedUser": {
+      "title": "BlockedUser",
+      "description": "User block relationship",
+      "type": "object",
+      "properties": {
+        "blocker_id": { "type": "string" },
+        "blocked_id": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["blocker_id", "blocked_id", "created_at"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notification",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "actor_id": { "type": "string" },
+        "type": { "type": "string", "enum": ["comment", "reply", "like", "follow"] },
+        "article_id": { "type": "string" },
+        "comment_id": { "type": "string" },
+        "is_read": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "actor_id", "type", "is_read", "created_at"]
+    }
+  },
+  "firestore": {
+    "/profiles/{profileId}": {
+      "schema": "Profile",
+      "description": "User profiles"
+    },
+    "/articles/{articleId}": {
+      "schema": "Article",
+      "description": "Articles"
+    },
+    "/articles/{articleId}/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "Comments on articles"
+    },
+    "/articles/{articleId}/reactions/{userId}": {
+      "schema": "ArticleReaction",
+      "description": "Article reactions"
+    },
+    "/profiles/{profileId}/followers/{followerId}": {
+      "schema": "Follow",
+      "description": "User followers"
+    },
+    "/profiles/{profileId}/following/{followingId}": {
+      "schema": "Follow",
+      "description": "User following"
+    },
+    "/profiles/{profileId}/blocked_users/{blockId}": {
+      "schema": "BlockedUser",
+      "description": "Blocked users"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User notifications"
+    }
+  }
+}

@@ -1,0 +1,152 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    function isAdmin() {
+      return isAuthenticated() && 
+        ((exists(/databases/$(database)/documents/profiles/$(request.auth.uid)) && 
+          (get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.badge == 'админ' ||
+           get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.badge == 'создатель')) ||
+         (request.auth.token.email == "bubinadubina5@gmail.com" && request.auth.token.email_verified == true));
+    }
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidProfile(data) {
+      return (!('id' in data) || data.id is string) &&
+             data.username is string && data.username.size() >= 2 && data.username.size() <= 30 &&
+             (!('avatar_url' in data) || data.avatar_url is string || data.avatar_url == null) &&
+             (!('banner_url' in data) || data.banner_url is string || data.banner_url == null) &&
+             (!('bio' in data) || data.bio is string && data.bio.size() <= 500 || data.bio == null) &&
+             (data.created_at is string || data.created_at is timestamp) &&
+             (!('is_banned' in data) || data.is_banned is bool) &&
+             (!('followers_count' in data) || data.followers_count is int) &&
+             (!('following_count' in data) || data.following_count is int) &&
+             (!('badge' in data) || data.badge is string || data.badge == null) &&
+             (!('is_verified' in data) || data.is_verified is bool);
+    }
+
+    function isValidArticle(data) {
+      return (!('id' in data) || data.id is string) &&
+             (!('author_id' in data) || data.author_id is string) &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             data.content is string &&
+             (!('excerpt' in data) || data.excerpt is string || data.excerpt == null) &&
+             (!('image' in data) || data.image is string || data.image == null) &&
+             (!('category' in data) || data.category is string) &&
+             (!('is_draft' in data) || data.is_draft is bool) &&
+             (!('author' in data) || data.author is string) &&
+             (!('date' in data) || data.date is string) &&
+             (!('read_time' in data) || data.read_time is string) &&
+             (!('edit_count' in data) || data.edit_count is int) &&
+             (!('views_count' in data) || data.views_count is int) &&
+             (!('likes_count' in data) || data.likes_count is int) &&
+             (!('dislikes_count' in data) || data.dislikes_count is int) &&
+             (data.created_at is string || data.created_at is timestamp) &&
+             (!('updated_at' in data) || data.updated_at is string || data.updated_at is timestamp);
+    }
+
+    function isValidComment(data) {
+      return data.content is string && data.content.size() > 0 && data.content.size() <= 2000 &&
+             (data.created_at is string || data.created_at is timestamp) &&
+             (!('parent_id' in data) || data.parent_id is string || data.parent_id == null) &&
+             (!('article_id' in data) || data.article_id is string) &&
+             (!('user_id' in data) || data.user_id is string);
+    }
+
+    function isValidReaction(data) {
+      return data.type in ['like', 'dislike'] &&
+             (data.created_at is string || data.created_at is timestamp) &&
+             (!('article_id' in data) || data.article_id is string) &&
+             (!('user_id' in data) || data.user_id is string);
+    }
+
+    function isValidFollow(data) {
+      return (!('follower_id' in data) || data.follower_id is string) &&
+             (!('following_id' in data) || data.following_id is string) &&
+             (data.created_at is string || data.created_at is timestamp);
+    }
+
+    function isValidNotification(data) {
+      return (!('id' in data) || data.id is string) &&
+             data.user_id is string &&
+             data.actor_id is string &&
+             data.type in ['comment', 'reply', 'like', 'follow'] &&
+             (!('article_id' in data) || data.article_id is string || data.article_id == null) &&
+             (!('comment_id' in data) || data.comment_id is string || data.comment_id == null) &&
+             data.is_read is bool &&
+             (data.created_at is string || data.created_at is timestamp);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /profiles/{profileId} {
+      allow read: if true;
+      allow create: if isOwner(profileId) && isValidProfile(request.resource.data);
+      allow update: if (isOwner(profileId) || isAdmin()) && isValidProfile(request.resource.data);
+
+      match /followers/{followerId} {
+        allow read: if true;
+        allow create: if isAuthenticated() && isOwner(followerId) && isValidFollow(request.resource.data);
+        allow delete: if isAuthenticated() && (isOwner(followerId) || isAdmin());
+      }
+
+      match /following/{followingId} {
+        allow read: if true;
+        allow create: if isAuthenticated() && isOwner(profileId) && isValidFollow(request.resource.data);
+        allow delete: if isAuthenticated() && (isOwner(profileId) || isAdmin());
+      }
+
+      match /blocked_users/{blockedId} {
+        allow read: if isOwner(profileId) || isAdmin();
+        allow create: if isAuthenticated() && isOwner(profileId);
+        allow delete: if isAuthenticated() && (isOwner(profileId) || isAdmin());
+      }
+    }
+
+    match /articles/{articleId} {
+      allow read: if isAdmin() || resource.data.is_draft == false || isOwner(resource.data.author_id);
+      allow create: if isAuthenticated() && isOwner(request.resource.data.author_id) && isValidArticle(request.resource.data);
+      allow update: if (isOwner(resource.data.author_id) || isAdmin()) && isValidArticle(request.resource.data);
+      allow delete: if isOwner(resource.data.author_id) || isAdmin();
+
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isAuthenticated() && isOwner(request.resource.data.user_id) && isValidComment(request.resource.data);
+        allow update: if (isOwner(resource.data.user_id) || isAdmin()) && isValidComment(request.resource.data);
+        allow delete: if isOwner(resource.data.user_id) || isAdmin();
+      }
+
+      match /reactions/{userId} {
+        allow read: if true;
+        allow write: if isOwner(userId) && isValidReaction(request.resource.data);
+      }
+    }
+
+    // Collection Group rule for comments
+    match /{path=**}/comments/{commentId} {
+      allow read: if true;
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isOwner(resource.data.user_id) || isAdmin();
+      allow create: if isAuthenticated() && isValidNotification(request.resource.data);
+      allow update: if isOwner(resource.data.user_id) && isValidNotification(request.resource.data);
+      allow delete: if isOwner(resource.data.user_id) || isAdmin();
+    }
+  }
+}

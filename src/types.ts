@@ -13,6 +13,7 @@ export interface Article {
   edit_count?: number;
   is_draft?: boolean;
   created_at?: string;
+  updated_at?: string;
   likes_count?: number;
   dislikes_count?: number;
   views_count?: number;
@@ -32,6 +33,19 @@ export interface Profile {
   following_count?: number;
   badge?: string;
   is_verified?: boolean;
+}
+
+export interface Notification {
+  id: string;
+  user_id: string;
+  actor_id: string;
+  type: 'comment' | 'reply' | 'like' | 'follow';
+  article_id?: string;
+  comment_id?: string;
+  is_read: boolean;
+  created_at: string;
+  actor_profile?: Profile;
+  article_title?: string;
 }
 
 export interface BlockedUser {
@@ -61,6 +75,7 @@ export interface Comment {
   user_id: string;
   content: string;
   created_at: string;
+  parent_id?: string;
   profile?: Profile;
 }
 
