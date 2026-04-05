@@ -65,6 +65,8 @@ import {
   Navigate
 } from 'react-router-dom';
 import Markdown from 'react-markdown';
+import ReactQuill from 'react-quill-new';
+import { GoogleGenAI, Type } from "@google/genai";
 import { Article, MOCK_ARTICLES, Comment, Profile, BlockedUser, Notification } from './types';
 import { Auth } from './components/Auth';
 import { auth, db } from './lib/firebase';
@@ -1175,7 +1177,7 @@ const ArticleDetail = ({ user }: { user: any | null }) => {
       </div>
 
       <div className="markdown-body relative">
-        <Markdown>{article.content}</Markdown>
+        <div dangerouslySetInnerHTML={{ __html: article.content }} />
         {article.edit_count && article.edit_count > 0 && (
           <div className="mt-8 pt-4 border-t border-zinc-100 dark:border-zinc-900 text-xs text-zinc-400 dark:text-zinc-600 italic flex items-center gap-1.5">
             <AlertIcon className="w-3 h-3" />
@@ -2392,19 +2394,30 @@ const ArticleEditor = ({ user, profile }: { user: any | null, profile: Profile |
     if (!isDraft) {
       setCheckingCompliance(true);
       try {
-        const response = await fetch('/api/check-compliance', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ title, excerpt, content })
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: `Проверь статью на соответствие правилам (https://blog-vlessfree.vercel.app/terms). 
+          Дополнительные правила:
+          1. Использование слова "tqweji23" строго запрещено в любом контексте.
+          2. Использование ненормативной лексики (матов) разрешено, если их количество в тексте не превышает 5 слов. Если матов от 1 до 5, это считается "в меру" и НЕ является нарушением. Если матов больше 5, статья считается нарушающей правила.
+          Заголовок: ${title}
+          Описание: ${excerpt}
+          Текст: ${content}`,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                isCompliant: { type: Type.BOOLEAN },
+                reason: { type: Type.STRING, description: "Причина нарушения, если есть (на русском языке)" }
+              },
+              required: ["isCompliant"]
+            }
+          }
         });
 
-        if (!response.ok) {
-          throw new Error('Ошибка при проверке статьи через ИИ.');
-        }
-
-        const result = await response.json();
+        const result = JSON.parse(response.text || '{}');
         if (result.isCompliant === false) {
           setError(`Статья нарушает правила: ${result.reason || 'неизвестная причина'}`);
           setLoading(false);
@@ -2581,16 +2594,26 @@ const ArticleEditor = ({ user, profile }: { user: any | null, profile: Profile |
 
           <div>
             <label className="block text-xs font-bold text-zinc-400 dark:text-zinc-600 uppercase tracking-widest mb-3 ml-1">
-              содержание (markdown)
+              содержание
             </label>
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              required
-              rows={12}
-              className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-6 py-4 text-sm focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-100 transition-colors dark:text-zinc-100 font-mono"
-              placeholder="# заголовок&#10;&#10;ваш текст здесь..."
-            />
+            <div className="rich-text-editor">
+              <ReactQuill
+                theme="snow"
+                value={content}
+                onChange={setContent}
+                modules={{
+                  toolbar: [
+                    [{ 'header': [1, 2, 3, false] }],
+                    ['bold', 'italic', 'underline', 'strike'],
+                    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                    ['blockquote', 'code-block'],
+                    ['link', 'image'],
+                    ['clean']
+                  ],
+                }}
+                placeholder="ваш текст здесь..."
+              />
+            </div>
           </div>
         </div>
 

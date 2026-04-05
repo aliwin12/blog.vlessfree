@@ -2,6 +2,9 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+/* Quill Rich Text Editor Styles */
+@import "react-quill-new/dist/quill.snow.css";
+
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
@@ -17,6 +20,45 @@
   body.dark {
     @apply bg-zinc-950 text-zinc-100;
   }
+}
+
+/* Quill Dark Mode Overrides */
+.dark .ql-toolbar {
+  @apply bg-zinc-900 border-zinc-800 text-zinc-100;
+}
+
+.dark .ql-container {
+  @apply bg-zinc-900 border-zinc-800 text-zinc-100;
+}
+
+.dark .ql-stroke {
+  stroke: #a1a1aa !important;
+}
+
+.dark .ql-fill {
+  fill: #a1a1aa !important;
+}
+
+.dark .ql-picker {
+  color: #a1a1aa !important;
+}
+
+.dark .ql-picker-options {
+  background-color: #27272a !important; /* zinc-800 */
+  border-color: #3f3f46 !important; /* zinc-700 */
+  color: #f4f4f5 !important; /* zinc-100 */
+}
+
+.ql-editor {
+  @apply min-h-[300px] text-sm leading-relaxed font-sans;
+}
+
+.ql-toolbar.ql-snow {
+  @apply rounded-t-2xl border-zinc-200 dark:border-zinc-800;
+}
+
+.ql-container.ql-snow {
+  @apply rounded-b-2xl border-zinc-200 dark:border-zinc-800;
 }
 
 .markdown-body {
